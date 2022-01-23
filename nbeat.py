@@ -17,77 +17,12 @@ from torch.utils.tensorboard import SummaryWriter
 # mpl.use('TkAgg')
 # =============================================================================
 import matplotlib.pyplot as plt
-from nbeats_pytorch.model import NBeatsNet
-# from nbeatmodel import NBeatsNet
+# from nbeats_pytorch.model import NBeatsNet
+from nbeatmodel import NBeatsNet
 
 import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
-#todo: lossf, parser(or env)
-
-# =============================================================================
-# class Dataset():
-# 	def __init__(self,fpath,forecast_length,backcast_length,usesubs,align,normalize):
-# 		self.ihepcdf=readIHEPC.IHEPCpreproc(fpath,usesubs=usesubs)
-# 		self.dataset=self.ihepcdf(backcast_length-1,
-# 									forecast_length,
-# 									forecast_length,
-# 									align=align,
-# 									normalize=normalize)
-# 		
-# 	def divide(self,validateRatio,samplesize):
-# 		splitset=torch.utils.data.Subset
-# 		indices=list(range(len(self.dataset)))
-# 		
-# 		lastsize=len(self.dataset.datasets[7])
-# # 		testsize=len(self.dataset)*testSize if testSize<1 else testSize
-# # 		trInd,valInd=indices[testsize:],indices[:testsize]
-# # 		trInd,valInd=indices[:1893678],indices[1893678:]
-# 		trInd,valInd=indices[:-lastsize],indices[-lastsize:]
-# # 		trInd,valInd=indices[125:],indices[:125]
-# # 		trInd,valInd=self.divide_eachblock()
-# # 		trsam=self.getsample(trInd,samplesize)
-# # 		valsam=self.getsample(valInd,samplesize)
-# 
-# # 		rng=np.random.default_rng()
-# 		ARGS.rng.shuffle(valInd)
-# # 		valInd=ARGS.rng.choice(valInd,size=512,replace=False)
-# 		
-# # =============================================================================
-# # 		todo
-# # 		trInd=valInd=[]
-# # 		for ...:
-# # 		showsample...
-# # =============================================================================
-# 		return splitset(self.dataset,trInd),splitset(self.dataset,valInd)
-# 		
-# 	def divide_eachblock(self,validateRatio=0.1):
-# 		trInd=valInd=[]
-# 		startidx=0
-# 		for ds in self.dataset.datasets:
-# 			lds=len(ds)
-# 			allidx=list(range(startidx,startidx+lds))
-# 			trInd=trInd+allidx[:-np.floor(lds*validateRatio).astype(int)]
-# 			valInd=valInd+allidx[-np.floor(lds*validateRatio).astype(int):]
-# 			startidx=startidx+lds
-# 		
-# 		return trInd,valInd
-# 	
-# 	@staticmethod
-# 	def getsample(indices,size):
-# 		return ARGS.rng.choice(indices,size=size,replace=False)
-# 	
-# # =============================================================================
-# # 	@staticmethod
-# # 	def getfixSample(dataset,totalnum,batch=None):
-# # 		dl=torch.utils.data.DataLoader(dataset,totalnum,True)
-# # 		for i in dl:
-# # 			fixSampleSet=torch.utils.data.TensorDataset(*i)
-# # 			return torch.utils.data.DataLoader(fixSampleSet,
-# # 											  batch if batch else totalnum,shuffle=False)
-# # =============================================================================
-# =============================================================================
-		
 class Trainer():
 	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir):
 		self.model=model.to(device)
@@ -98,16 +33,6 @@ class Trainer():
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
 		
-# =============================================================================
-# 	@staticmethod
-# 	def checkDevice():
-# 		print(f'python ver. {sys.version}')
-# 		print(f'pytorch ver. {torch.__version__}')
-# 		print(f'cuda ver. {torch.version.cuda}')
-# 		print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
-# 		print(f'use device: {(dev:=torch.device("cuda" if cuava else "cpu"))}')
-# 		return dev
-# =============================================================================
 		
 	def train(self,epochs,backcoef,record):
 		iteration=-1
@@ -128,30 +53,7 @@ class Trainer():
 					
 			if record[0]=='e':
 				self.validate(ep,batch,iteration,loss.item())
-# =============================================================================
-# 				if iteration%mesInterval==0:
-# 					test_err,lastsample=self.evaluate(valloader,self.lossf,lastsample=True)
-# 					stepinfo={'ep':ep,'iteration':iteration,'step':iteration}
-# 					trlog={'loss':loss.item(),'x':x,'y':y[...,0],'f':fore.detach().cpu()}
-# 					vallog={'loss':test_err.item(),'x':lastsample[0],'y':lastsample[1],
-# 							 'f':lastsample[2]}
-# # 					pickindices=rng.choice(min(len(x),len(lastsample[0])),size=4,replace=False)
-# 					self.trainlogging(stepinfo,trlog,vallog,)
-# =============================================================================
-# =============================================================================
-# 					step=iteration
-# 					print(f'epoch:{ep} iteration:{iteration} | training loss={loss.item():f} | test_loss={test_err.item():f}')
-# 					self.writer.add_scalar('loss/train',loss.item(),step)
-# 					self.writer.add_scalar('loss/validate',test_err.item(),step)
-# 					
-# 					trainbgf=(x,y[...,0],fore.detach().cpu())
-# 					for ploti,tx,ty,tf,vx,vy,vf in zip(range(4),*trainbgf,*lastsample):
-# 						self.writer.add_figure(f'train/all{ploti}',self.plotall(tx,ty,tf),step)
-# 						self.writer.add_figure(f'train/fore{ploti}',self.plotfore(ty,tf),step)
-# 						self.writer.add_figure(f'validate/all{ploti}',self.plotall(vx,vy,vf),step)
-# 						self.writer.add_figure(f'validate/fore{ploti}',self.plotfore(vy,vf),step)
-# 					self.writer.flush()
-# =============================================================================
+
 
 	def validate(self,ep,batch,itrn,trainloss):
 		test_err=self.evaluate(self.valloader,self.lossf).item()
@@ -237,7 +139,7 @@ class ARGS():
 	def __init__(self):
 		parser=argparse.ArgumentParser()
 		#dataset setting
-		parser.add_argument('-dp','--datapath',type=str,default='household_power_consumption.txt')
+		parser.add_argument('-dp','--datapath',type=str,default='dataset/IHEPC/household_power_consumption.txt')
 		parser.add_argument('-uc','--use_cols',type=str,default='g')
 		parser.add_argument('-tu','--timeunit',type=int,default=60)
 		parser.add_argument('-a','--align',type=int,default=60)
@@ -308,36 +210,13 @@ if __name__=='__main__':
 								normalize=args.normalized_method,
 								nanRT=args.nanThreshold)
 	wholedataset.setbackfore(args.backcast_length)
-# =============================================================================
-# 	wholedataset=Dataset(args.datapath,
-# 					  args.forecast_length,
-# 					  args.backcast_length,
-# 					  usesubs=args.use_cols,
-# 					  align=args.align,
-# 					  normalize=args.normalized_method)
-# =============================================================================
 
 	trainset,validateset=wholedataset.splitbyblock()
 	trainset.setvisualindices(args.rng,args.samplesize)
 	validateset.setvisualindices(args.rng,args.samplesize)
-# =============================================================================
-# 	dataset={i:j for i,j in zip(('train','validate')
-# 					 ,wholedataset.divide(args.valid_ratio,args.samplesize))}
-# =============================================================================
-	
-# =============================================================================
-# 	sample={i:j for i,j in zip(('train','validate')
-# 					 ,wholedataset.divide(args.valid_ratio,args.samplesize))}
-# =============================================================================
 
 	trainloader=torch.utils.data.DataLoader(trainset,args.train_batch,shuffle=True)
 	valloader=torch.utils.data.DataLoader(validateset,args.valid_batch,shuffle=False)
-
-# =============================================================================
-# 	loaders={ds:torch.utils.data.DataLoader(dataset[ds],bt,sf)
-# 			  for ds,bt,sf in zip(('train','validate'),
-# 						 (args.train_batch,args.valid_batch),(True,False))}
-# =============================================================================
 	
 	net = NBeatsNet(
 		device=args.dev,

@@ -9,10 +9,6 @@ import pandas as pd
 import numpy as np
 import torch.utils.data as Data
 from torch.utils.data.dataset import Dataset
-# import matplotlib
-# matplotlib.use('TkAgg')
-# import matplotlib.pyplot as plt
-# from torch.utils.tensorboard import SummaryWriter
 
 class IHEPCread():
 	def __init__(self,datasetpath,usesubs='g',preview=False):
@@ -103,12 +99,7 @@ class IHEPCblock(Dataset):
 		hourbias=self.starttimestamp.hour
 		if self.align==1440:
 			return -(hourbias*60+minbias)%1440
-		
-# =============================================================================
-# 	def getstep(self):
-# 		return {'minute':1,'hour':60,'day':1440}.get(self.align)
-# =============================================================================
-	
+
 class IHEPCset(Data.ConcatDataset):
 	def __init__(self,blocks,timeunit,sep=None):
 		self.timeunit=timeunit
