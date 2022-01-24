@@ -164,8 +164,8 @@ class NBeatsNet(nn.Module):
             return b
         return f
 
-    def forward(self, backcast,reStacks=False):
-        backcast = squeeze_last_dim(backcast)
+    def forward(self, rawbackcast,reStacks=False):
+        backcast = squeeze_last_dim(rawbackcast)
         forecast = torch.zeros(size=(backcast.size()[0], self.forecast_length,))  # maybe batch size here.
         stacks=[]
         for stack_id in range(len(self.stacks)):
@@ -177,9 +177,13 @@ class NBeatsNet(nn.Module):
                 sf=sf.to(self.device) + f
             stacks.append(sf)
         if reStacks:
-            return backcast, forecast, stacks
-        return backcast, forecast
+            return squeeze_last_dim(rawbackcast)-backcast, forecast, stacks
+        return squeeze_last_dim(rawbackcast)-backcast, forecast
 
+    def count_params(self,cond='all'):
+        cond_f={'all':lambda x:True,
+                'trainable':lambda x:x.requires_grad}.get(cond)
+        return sum(p.numel() for p in self.parameters() if cond_f(p))
 
 def squeeze_last_dim(tensor):
     if len(tensor.shape) == 3 and tensor.shape[-1] == 1:  # (128, 10, 1) => (128, 10).

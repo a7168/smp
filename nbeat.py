@@ -24,7 +24,7 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir):
+	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir,useback2train,useback2eval):
 		self.model=model.to(device)
 		self.trloader=trloader
 		self.valloader=valloader
@@ -32,18 +32,24 @@ class Trainer():
 		self.opt=opt
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
+		self.useback2train=useback2train
+		self.useback2eval=useback2eval
 		
 		
 	def train(self,epochs,backcoef,record):
 		iteration=-1
 # 		rng=np.random.default_rng()
 		for ep in range(epochs):
-			for batch,(x,y) in enumerate(self.trloader):
+			for batch,(x,y) in enumerate(self.trloader):#TODO useback2train
 				self.model.train()
 				iteration+=1
 				back,fore=self.model(x.to(self.device))
-				loss=self.lossf(fore,y[...,0].to(self.device))+backcoef*self.lossf(back,torch.zeros_like(x[...,0]).to(self.device))
-# 				loss=self.lossf(fore,y[...,0].to(self.device))+backcoef*self.lossf(back,x[...,0].to(self.device))
+				if self.useback2train is True:
+					fore=torch.cat((back,fore),-1)
+					y=torch.cat((x,y),1)
+
+				# loss=self.lossf(fore,y[...,0].to(self.device))+backcoef*self.lossf(back,torch.zeros_like(x[...,0]).to(self.device))
+				loss=self.lossf(fore,y[...,0].to(self.device))
 				self.opt.zero_grad()
 				loss.backward()
 				self.opt.step()
@@ -54,6 +60,10 @@ class Trainer():
 			if record[0]=='e':
 				self.validate(ep,batch,iteration,loss.item())
 
+	def update(self,loss):
+		self.opt.zero_grad()
+		loss.backward()
+		self.opt.step()
 
 	def validate(self,ep,batch,itrn,trainloss):
 		test_err=self.evaluate(self.valloader,self.lossf).item()
@@ -64,60 +74,47 @@ class Trainer():
 		self.writer.add_scalar('loss/validate',test_err,itrn)
 		
 		trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-		trainsample_f=self.inference(trainsample_x).cpu()
-		for idx,x,y,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_f):
-			self.writer.add_figure(f'train/all_{idx}',self.plotall(x,y,f),itrn)
+		trainsample_b,trainsample_f=[i.cpu() for i in self.inference(trainsample_x)]
+		for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
+			self.writer.add_figure(f'train/all_{idx}',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'train/fore_{idx}',self.plotfore(y,f),itrn)
+			self.writer.add_figure(f'train/back_{idx}',self.plotback(x,b),itrn)
 			
 		valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-		valsample_f=self.inference(valsample_x).cpu()
+		trainsample_b,valsample_f=[i.cpu() for i in self.inference(valsample_x)]
 		for idx,x,y,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_f):
-			self.writer.add_figure(f'validate/all_{idx}',self.plotall(x,y,f),itrn)
+			self.writer.add_figure(f'validate/all_{idx}',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'validate/fore_{idx}',self.plotfore(y,f),itrn)
+			self.writer.add_figure(f'train/back_{idx}',self.plotback(x,b),itrn)
 		
 		self.writer.flush()
 		
-		
-	def trainlogging(self,stepinfo,trlog,vallog,pickindices=range(4)):
-		step=stepinfo["step"]
-		stepstr=f'epoch:{stepinfo["ep"]} iteration:{stepinfo["iteration"]}'
-		print(f'{stepstr} | training loss={trlog["loss"]:f} | test_loss={vallog["loss"]:f}')
-		self.writer.add_scalar('loss/train',trlog["loss"],step)
-		self.writer.add_scalar('loss/validate',vallog["loss"],step)
-		
-		for ploti in pickindices:
-			tx,ty,tf=[trlog[i][ploti] for i in ('x','y','f')]
-			vx,vy,vf=[vallog[i][ploti] for i in ('x','y','f')]
-			self.writer.add_figure(f'train/all{ploti}',self.plotall(tx,ty,tf),step)
-			self.writer.add_figure(f'train/fore{ploti}',self.plotfore(ty,tf),step)
-			self.writer.add_figure(f'validate/all{ploti}',self.plotall(vx,vy,vf),step)
-			self.writer.add_figure(f'validate/fore{ploti}',self.plotfore(vy,vf),step)
-		self.writer.flush()
-				
 	def inference(self,data):
 		self.model.eval()
 		with torch.no_grad():
 			back,fore=self.model(data.to(self.device))
-			return fore
+			return back,fore
 		
-	def evaluate(self,dataloader,metric,lastsample=False):
+	def evaluate(self,dataloader,metric): #TODO eval不含推斷
 		error=0
 		for batch,(x,gt) in enumerate(dataloader,1):
 # 		used,gt=pairdata
 			result=self.inference(x)
-			error+=metric(result,gt[...,0].to(self.device))
+			if self.useback2eval is True:
+				result=torch.cat(result,-1)
+				gt=torch.cat((x,gt),1)
+
+			error+=metric(result[1],gt[...,0].to(self.device))
 			
-		if lastsample:
-			return error/batch,(x,gt[...,0],result.cpu())
 		return error/batch
 	
-	def plotall(self,back,gt,fore):
-		bl,fl=len(back),len(fore)
+	def plotall(self,x,y,b,f):
+		xl,yl=len(x),len(y)
 		
 		fig, ax1 = plt.subplots()
-		ax1.plot(range(0,bl),back,label='back',color='b')
-		ax1.plot(range(bl,bl+fl),gt,label='ground truth',color='g')
-		ax1.plot(range(bl,bl+fl),fore,label='forecast',color='r')
+		ax1.plot(range(xl+yl),torch.cat((x,y)),label='ground truth',color='g')
+		ax1.plot(range(0,xl),b,label='back',color='b')
+		ax1.plot(range(xl,xl+yl),f,label='forecast',color='r')
 		
 		ax1.legend()
 		fig.tight_layout()
@@ -133,6 +130,18 @@ class Trainer():
 		ax1.legend()
 		fig.tight_layout()
 		return fig
+
+	def plotback(self,x,b):
+		xl=len(x)
+
+		fig, ax1 = plt.subplots()
+		ax1.plot(range(xl),x,label='ground truth',color='g')
+		ax1.plot(range(xl),b,label='BACKcast',color='b')
+		
+		ax1.legend()
+		fig.tight_layout()
+		return fig
+
 	
 class ARGS():
 	rng=np.random.default_rng()
@@ -164,6 +173,8 @@ class ARGS():
 		parser.add_argument('-vb','--valid_batch',type=int,default=512)
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
 		parser.add_argument('-bc','--backcoef',type=float,default=0)
+		parser.add_argument('-ub2t','--useback2train',type=bool,default=False)
+		parser.add_argument('-ub2e','--useback2eval',type=bool,default=False)
 		
 		self.args=parser.parse_args()
 		print(f'use args : {self.args}')
@@ -229,7 +240,12 @@ if __name__=='__main__':
 		hidden_layer_units=args.hidden_layer_units,)
 	
 	opt=torch.optim.Adam(net.parameters())
-	exp=Trainer(net,trainloader,valloader,nn.MSELoss(),opt,device=args.dev,tb_log_dir=args.tb_log_dir)
+	exp=Trainer(net,trainloader,valloader,nn.MSELoss(),opt,
+				device=args.dev,
+				tb_log_dir=args.tb_log_dir,
+				useback2train=args.useback2train,
+				useback2eval=args.useback2eval)
 	exp.train(epochs=args.epochs,
 		   backcoef=args.backcoef,
 		   record=args.record)
+	...
