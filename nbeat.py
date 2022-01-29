@@ -36,66 +36,100 @@ class Trainer():
 		self.useback2eval=useback2eval
 		
 		
-	def train(self,epochs,backcoef,record):
+	def train(self,epochs,record):
 		iteration=-1
 # 		rng=np.random.default_rng()
 		for ep in range(epochs):
 			for batch,(x,y) in enumerate(self.trloader):#TODO useback2train
-				self.model.train()
 				iteration+=1
-				back,fore=self.model(x.to(self.device))
-				if self.useback2train is True:
+				x,y=[i.squeeze(-1) for i in (x,y)]
+				""" self.model.train()
+				back,fore=self.model(x.to(self.device)) """
+				back,fore=self.inference_new(x,trmode=True,gd=True)
+
+				""" if self.useback2train is True:
 					fore=torch.cat((back,fore),-1)
 					y=torch.cat((x,y),1)
-
 				# loss=self.lossf(fore,y[...,0].to(self.device))+backcoef*self.lossf(back,torch.zeros_like(x[...,0]).to(self.device))
-				loss=self.lossf(fore,y[...,0].to(self.device))
-				self.opt.zero_grad()
+				loss=self.lossf(fore,y[...,0].to(self.device)) """
+				lossall=self.evaluate_new(x,y,back,fore,useback=True)
+				lossfore=self.evaluate_new(x,y,back,fore,useback=False)
+
+				""" self.opt.zero_grad()
 				loss.backward()
-				self.opt.step()
+				self.opt.step() """
+				self.update(lossall if self.useback2train else lossfore)
 				
 				if record[0]=='i' and iteration%(int(record[1:]))==0:
-					self.validate(ep,batch,iteration,loss.item())
+					self.validate(ep,batch,iteration,lossall.item(),lossfore.item())
 					
 			if record[0]=='e':
-				self.validate(ep,batch,iteration,loss.item())
+				self.validate(ep,batch,iteration,lossall.item(),lossfore.item())
 
 	def update(self,loss):
 		self.opt.zero_grad()
 		loss.backward()
 		self.opt.step()
 
-	def validate(self,ep,batch,itrn,trainloss):
-		test_err=self.evaluate(self.valloader,self.lossf).item()
+	def validate(self,ep,batch,itrn,trainlossall,trainlossfore):
+		# test_err=self.evaluate(self.valloader,self.lossf).item()
+		vall,vfore=np.mean([[self.evaluate_new(*[i.squeeze(-1) for i in (x,y)],
+												*self.inference_new(x,trmode=False,gd=False),useback=ub).cpu() for ub in (True,False)]
+				for x,y in self.valloader],axis=0)
+
+		""" stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
+		print(f'{stepstr} | train loss={trainloss:f} | test err={test_err:f}') """
 		stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
-		print(f'{stepstr} | train loss={trainloss:f} | test err={test_err:f}')
+		trainstr=f'train lossall={trainlossall:f} | train lossfore={trainlossfore:f}'
+		valstr=f'valiadate errall={vall:f} | valiadate errfore={vfore:f}'
+		print(f'{stepstr} | {trainstr} | {valstr}')
 		
-		self.writer.add_scalar('loss/train',trainloss,itrn)
-		self.writer.add_scalar('loss/validate',test_err,itrn)
+		self.writer.add_scalar('train/all',trainlossall,itrn)
+		self.writer.add_scalar('train/fore',trainlossfore,itrn)
+		self.writer.add_scalar('validate/all',vall,itrn)
+		self.writer.add_scalar('validate/fore',vfore,itrn)
 		
 		trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-		trainsample_b,trainsample_f=[i.cpu() for i in self.inference(trainsample_x)]
+		trainsample_b,trainsample_f=[i.cpu() for i in self.inference_new(trainsample_x,trmode=False,gd=False)]
 		for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
 			self.writer.add_figure(f'train/all_{idx}',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'train/fore_{idx}',self.plotfore(y,f),itrn)
 			self.writer.add_figure(f'train/back_{idx}',self.plotback(x,b),itrn)
 			
 		valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-		trainsample_b,valsample_f=[i.cpu() for i in self.inference(valsample_x)]
-		for idx,x,y,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_f):
+		valsample_b,valsample_f=[i.cpu() for i in self.inference_new(valsample_x,trmode=False,gd=False)]
+		for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
 			self.writer.add_figure(f'validate/all_{idx}',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'validate/fore_{idx}',self.plotfore(y,f),itrn)
-			self.writer.add_figure(f'train/back_{idx}',self.plotback(x,b),itrn)
+			self.writer.add_figure(f'validate/back_{idx}',self.plotback(x,b),itrn)
 		
 		self.writer.flush()
 		
-	def inference(self,data):
+	""" def inference(self,data):
 		self.model.eval()
 		with torch.no_grad():
 			back,fore=self.model(data.to(self.device))
-			return back,fore
-		
-	def evaluate(self,dataloader,metric): #TODO eval不含推斷
+			return back,fore """
+
+	def inference_new(self,data,trmode,gd):
+		data=data.to(self.device)
+		if trmode is True:
+			self.model.train()
+		else:
+			self.model.eval()
+
+		if gd is True:
+			return self.model(data)
+		with torch.no_grad():
+			return self.model(data)
+	
+	def evaluate_new(self,x,y,b,f,useback):
+		if useback is True:
+			f=torch.cat((b,f),-1)
+			y=torch.cat((x,y),-1)
+		return self.lossf(f,y.to(self.device)) #+useback*self.lossf(b,x.to(self.device))
+
+	""" def evaluate(self,dataloader,metric): #TODO eval不含推斷
 		error=0
 		for batch,(x,gt) in enumerate(dataloader,1):
 # 		used,gt=pairdata
@@ -106,7 +140,7 @@ class Trainer():
 
 			error+=metric(result[1],gt[...,0].to(self.device))
 			
-		return error/batch
+		return error/batch """
 	
 	def plotall(self,x,y,b,f):
 		xl,yl=len(x),len(y)
@@ -142,6 +176,11 @@ class Trainer():
 		fig.tight_layout()
 		return fig
 
+	def count_params(self,cond='all'):
+		cond_f={'all':lambda x:True,
+				'trainable':lambda x:x.requires_grad}.get(cond)
+		return sum(p.numel() for p in self.model.parameters() if cond_f(p))
+
 	
 class ARGS():
 	rng=np.random.default_rng()
@@ -160,19 +199,19 @@ class ARGS():
 		parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=3)
 		parser.add_argument('-fl','--forecast_length',type=int,default=24)
 		parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
-		parser.add_argument('-tdim','--thetas_dim',type=str,default='4,8')
+		parser.add_argument('-tdim','--thetas_dim',type=str,default='8,8')
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
 		#training setting
-		#rngseed
-		parser.add_argument('-e','--epochs',type=int,default=30)
+		#TODO rngseed
+		parser.add_argument('-e','--epochs',type=int,default=35)
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
-		parser.add_argument('-r','--record',type=str,default='i100')
+		parser.add_argument('-r','--record',type=str,default='e') #i100
 		parser.add_argument('-tb','--train_batch',type=int,default=512)
 		parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
 		parser.add_argument('-vb','--valid_batch',type=int,default=512)
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
-		parser.add_argument('-bc','--backcoef',type=float,default=0)
+		# parser.add_argument('-bc','--backcoef',type=float,default=0)
 		parser.add_argument('-ub2t','--useback2train',type=bool,default=False)
 		parser.add_argument('-ub2e','--useback2eval',type=bool,default=False)
 		
@@ -192,7 +231,7 @@ class ARGS():
 	@staticmethod
 	def getstacktype(s):
 		stacktype={'g':NBeatsNet.GENERIC_BLOCK,'s':NBeatsNet.SEASONALITY_BLOCK,
-				't':NBeatsNet.TREND_BLOCK} #,'c':NBeatsNet.GENERIC_CNN
+				't':NBeatsNet.TREND_BLOCK,'c':NBeatsNet.GENERIC_CNN}
 		return [stacktype.get(i) for i in s]
 	
 	@staticmethod
@@ -206,11 +245,11 @@ class ARGS():
 		print(f'pytorch ver. {torch.__version__}')
 		print(f'cuda ver. {torch.version.cuda}')
 		print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
-		print(f'use device: {(dev:=torch.device("cuda" if cuava else "cpu"))}')
+		print(f'use device: {(dev:=torch.device("cuda:1" if cuava else "cpu"))}')
 		print('=============================')
 		return dev
 	
-if __name__=='__main__':
+if __name__=='__main__':#TODO batch execute
 	args=ARGS()
 	
 	rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
@@ -245,7 +284,8 @@ if __name__=='__main__':
 				tb_log_dir=args.tb_log_dir,
 				useback2train=args.useback2train,
 				useback2eval=args.useback2eval)
+	print(f'params: {exp.count_params()}')
 	exp.train(epochs=args.epochs,
-		   backcoef=args.backcoef,
+		#    backcoef=args.backcoef,
 		   record=args.record)
 	...

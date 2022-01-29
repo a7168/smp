@@ -321,19 +321,19 @@ class GenericCNN(nn.Module):
 # =============================================================================
 		self.cnn1 = nn.Sequential(
 # 			nn.ConstantPad1d((59,0),0),
-			nn.Conv1d(1,units,7,dilation=1440)
+			nn.Conv1d(1,units,6)
 			)
 		self.cnn2 = nn.Sequential(
-			nn.ConstantPad1d((59,0),0),
-			nn.Conv1d(units,units,60)
+			# nn.ConstantPad1d((59,0),0),
+			nn.Conv1d(units,units,7)
 			)
 		self.cnn3 = nn.Sequential(
-			nn.ConstantPad1d((59,0),0),
-			nn.Conv1d(units,units,60)
+			# nn.ConstantPad1d((59,0),0),
+			nn.Conv1d(units,units,7)
 			)
 		self.cnn4 = nn.Sequential(
-			nn.ConstantPad1d((59,0),0),
-			nn.Conv1d(units,units,60)
+			# nn.ConstantPad1d((59,0),0),
+			nn.Conv1d(units,units,7)
 			)
 		
 		
@@ -355,26 +355,42 @@ class GenericCNN(nn.Module):
 # =============================================================================
 # 		self.theta = nn.Conv1d(units,thetas_dim,60,padding=(59,0),bias=False)
 		self.theta = nn.Sequential(
-			nn.ConstantPad1d((59,0),0),
-			nn.Conv1d(units,thetas_dim,60,bias=False)
+			# nn.ConstantPad1d((59,0),0),
+			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False)
 			)
-		self.basis = nn.ConvTranspose1d(thetas_dim,1,8,dilation=1440,bias=False)
-		
+		# self.basis = nn.ConvTranspose1d(thetas_dim,1,8,dilation=1440,bias=False)
+		self.basis = nn.Sequential(
+            nn.ConstantPad1d((0,1), 0),
+            nn.ConvTranspose1d(thetas_dim,thetas_dim,25,stride=20,output_padding=4),
+            nn.ReLU(),
+            nn.ConvTranspose1d(thetas_dim,1,24),
+            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
+            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
+            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
+            # nn.ConvTranspose1d(thetas_dim,thetas_dim,6),
+        )
 
 	def forward(self, x):
 # 		x = squeeze_last_dim(x)
-		
-		x = F.relu(self.cnn1(x.unsqueeze(1).to(self.device)))
+		x=x.unsqueeze(1)
+		x = F.relu(self.cnn1(x.to(self.device)))
 		x = F.relu(self.cnn2(x))
 		x = F.relu(self.cnn3(x))
 		x = F.relu(self.cnn4(x))
 		
 		x=self.theta(x)
 		x=self.basis(x)
-		return x[:-self.forecast_length], x[-self.forecast_length:]
+		return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
 
 	def __str__(self):
 		block_type = type(self).__name__
 		return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
                f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
                f'share_thetas={self.share_thetas}) at @{id(self)}'
+
+
+
+if __name__=='__main__':
+    test=GenericCNN(8,4,torch.device("cpu"),168,24)
+    k=test(torch.rand(5,1,168))
+    ...
