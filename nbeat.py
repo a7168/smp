@@ -35,7 +35,6 @@ class Trainer():
 		self.useback2train=useback2train
 		self.useback2eval=useback2eval
 		
-		
 	def train(self,epochs,record):
 		iteration=-1
 # 		rng=np.random.default_rng()

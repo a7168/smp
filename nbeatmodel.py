@@ -302,93 +302,61 @@ class GenericBlock(Block):
 
         return backcast, forecast
 
-
 class GenericCNN(nn.Module):
-	
-	def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
+    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
                  nb_harmonics=None):
-		super(GenericCNN, self).__init__()
-		self.units = units
-		self.thetas_dim = thetas_dim
-		self.backcast_length = backcast_length
-		self.forecast_length = forecast_length
-		self.share_thetas = share_thetas
-# =============================================================================
-# 		self.fc1 = nn.Linear(backcast_length, units)
-# 		self.fc2 = nn.Linear(units, units)
-# 		self.fc3 = nn.Linear(units, units)
-# 		self.fc4 = nn.Linear(units, units)
-# =============================================================================
-		self.cnn1 = nn.Sequential(
-# 			nn.ConstantPad1d((59,0),0),
+        super(GenericCNN, self).__init__()
+        self.units = units
+        self.thetas_dim = thetas_dim
+        self.backcast_length = backcast_length
+        self.forecast_length = forecast_length
+        self.share_thetas = share_thetas
+        self.device = device
+
+        self.cnn1 = nn.Sequential(
 			nn.Conv1d(1,units,6)
 			)
-		self.cnn2 = nn.Sequential(
-			# nn.ConstantPad1d((59,0),0),
+        self.cnn2 = nn.Sequential(
 			nn.Conv1d(units,units,7)
 			)
-		self.cnn3 = nn.Sequential(
-			# nn.ConstantPad1d((59,0),0),
+        self.cnn3 = nn.Sequential(
 			nn.Conv1d(units,units,7)
 			)
-		self.cnn4 = nn.Sequential(
-			# nn.ConstantPad1d((59,0),0),
+        self.cnn4 = nn.Sequential(
 			nn.Conv1d(units,units,7)
 			)
 		
-		
-# =============================================================================
-# 		self.cnn1 = nn.Conv1d(1,units,60,padding=(59,0))
-# 		self.cnn2 = nn.Conv1d(units,units,60,padding=(59,0))
-# 		self.cnn3 = nn.Conv1d(units,units,60,padding=(59,0))
-# 		self.cnn4 = nn.Conv1d(units,units,60,padding=(59,0))
-# =============================================================================
-
-		self.device = device
-# =============================================================================
-# 		self.backcast_linspace, self.forecast_linspace = linear_space(backcast_length, forecast_length)
-# 		if share_thetas:
-# 			self.theta_f_fc = self.theta_b_fc = nn.Linear(units, thetas_dim, bias=False)
-# 		else:
-# 			self.theta_b_fc = nn.Linear(units, thetas_dim, bias=False)
-# 			self.theta_f_fc = nn.Linear(units, thetas_dim, bias=False)
-# =============================================================================
-# 		self.theta = nn.Conv1d(units,thetas_dim,60,padding=(59,0),bias=False)
-		self.theta = nn.Sequential(
-			# nn.ConstantPad1d((59,0),0),
+        self.theta = nn.Sequential(
 			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False)
 			)
-		# self.basis = nn.ConvTranspose1d(thetas_dim,1,8,dilation=1440,bias=False)
-		self.basis = nn.Sequential(
+        self.basis = nn.Sequential(
             nn.ConstantPad1d((0,1), 0),
             nn.ConvTranspose1d(thetas_dim,thetas_dim,25,stride=20,output_padding=4),
             nn.ReLU(),
             nn.ConvTranspose1d(thetas_dim,1,24),
-            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
-            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
-            # nn.ConvTranspose1d(thetas_dim,thetas_dim,7),
-            # nn.ConvTranspose1d(thetas_dim,thetas_dim,6),
         )
 
-	def forward(self, x):
+    def forward(self, x):
 # 		x = squeeze_last_dim(x)
-		x=x.unsqueeze(1)
-		x = F.relu(self.cnn1(x.to(self.device)))
-		x = F.relu(self.cnn2(x))
-		x = F.relu(self.cnn3(x))
-		x = F.relu(self.cnn4(x))
-		
-		x=self.theta(x)
-		x=self.basis(x)
-		return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
+        x=x.unsqueeze(1)
+        x = F.relu(self.cnn1(x.to(self.device)))
+        x = F.relu(self.cnn2(x))
+        x = F.relu(self.cnn3(x))
+        x = F.relu(self.cnn4(x))
 
-	def __str__(self):
-		block_type = type(self).__name__
-		return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
+        x=self.theta(x)
+        x=self.basis(x)
+        return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
+
+    def __str__(self):
+        block_type = type(self).__name__
+        return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
                f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
                f'share_thetas={self.share_thetas}) at @{id(self)}'
 
-
+class GenericCNNDilation(nn.Module):
+    def __init__(self,):
+        ...
 
 if __name__=='__main__':
     test=GenericCNN(8,4,torch.device("cpu"),168,24)
