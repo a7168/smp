@@ -138,8 +138,8 @@ class IHEPCsubset(Data.Subset):
 		super().__init__(dataset,indices)
 		self.visualindices=None
 		
-	def setvisualindices(self,rng,size):
-		self.visualindices=self.getsample(rng,list(range(len(self))),size)
+	def setvisualindices(self,size):
+		self.visualindices=self.getsample(list(range(len(self))),size)
 		
 	def getvisualbatch(self):
 		if self.dataset.sep is None:
@@ -147,9 +147,12 @@ class IHEPCsubset(Data.Subset):
 		else:
 			return [np.stack(j) for j in zip(*[self[i] for i in self.visualindices])]
 			
-	@staticmethod
-	def getsample(rng,indices,size):
-		return rng.choice(indices,size=size,replace=False)
+	def getsample(self,indices,size):
+		return self.rng.choice(indices,size=size,replace=False)
+
+	@classmethod
+	def setrng(cls,seed):
+		cls.rng=np.random.default_rng(seed=seed)
 	
 	
 

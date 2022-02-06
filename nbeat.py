@@ -91,16 +91,16 @@ class Trainer():
 		trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
 		trainsample_b,trainsample_f=[i.cpu() for i in self.inference_new(trainsample_x,trmode=False,gd=False)]
 		for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
-			self.writer.add_figure(f'train/all_{idx}',self.plotall(x,y,b,f),itrn)
-			self.writer.add_figure(f'train/fore_{idx}',self.plotfore(y,f),itrn)
-			self.writer.add_figure(f'train/back_{idx}',self.plotback(x,b),itrn)
+			self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
+			self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
+			self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
 			
 		valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
 		valsample_b,valsample_f=[i.cpu() for i in self.inference_new(valsample_x,trmode=False,gd=False)]
 		for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
-			self.writer.add_figure(f'validate/all_{idx}',self.plotall(x,y,b,f),itrn)
-			self.writer.add_figure(f'validate/fore_{idx}',self.plotfore(y,f),itrn)
-			self.writer.add_figure(f'validate/back_{idx}',self.plotback(x,b),itrn)
+			self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
+			self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
+			self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
 		
 		self.writer.flush()
 		
@@ -182,7 +182,7 @@ class Trainer():
 
 	
 class ARGS():
-	rng=np.random.default_rng()
+	# rng=np.random.default_rng()
 	def __init__(self):
 		parser=argparse.ArgumentParser()
 		#dataset setting
@@ -203,6 +203,7 @@ class ARGS():
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
 		#training setting
 		#TODO rngseed
+		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
 		parser.add_argument('-r','--record',type=str,default='e') #i100
@@ -217,6 +218,7 @@ class ARGS():
 		self.args=parser.parse_args()
 		print(f'use args : {self.args}')
 		self.dev=self.checkDevice()
+		self.globalrng=np.random.default_rng(seed=self.args.rngseed)
 		
 	def __getattr__(self,key):
 		attr=getattr(self.args,key)
@@ -261,8 +263,9 @@ if __name__=='__main__':#TODO batch execute
 	wholedataset.setbackfore(args.backcast_length)
 
 	trainset,validateset=wholedataset.splitbyblock()
-	trainset.setvisualindices(args.rng,args.samplesize)
-	validateset.setvisualindices(args.rng,args.samplesize)
+	trainset.setrng(seed=args.globalrng.integers(1000000))
+	trainset.setvisualindices(args.samplesize)
+	validateset.setvisualindices(args.samplesize)
 
 	trainloader=torch.utils.data.DataLoader(trainset,args.train_batch,shuffle=True)
 	valloader=torch.utils.data.DataLoader(validateset,args.valid_batch,shuffle=False)
