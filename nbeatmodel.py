@@ -26,8 +26,10 @@ class NBeatsNet(nn.Module):
                  thetas_dim=(4, 8),
                  share_weights_in_stack=False,
                  hidden_layer_units=256,
-                 nb_harmonics=None):
+                 nb_harmonics=None,
+                 **argd):
         super(NBeatsNet, self).__init__()
+        self.argd={i:j for i,j in argd.items() if j is not None}
         self.forecast_length = forecast_length
         self.backcast_length = backcast_length
         self.hidden_layer_units = hidden_layer_units
@@ -57,7 +59,7 @@ class NBeatsNet(nn.Module):
                 block = blocks[-1]  # pick up the last one when we share weights.
             else:
                 block = block_init(self.hidden_layer_units, self.thetas_dim[stack_id],
-                                   self.device, self.backcast_length, self.forecast_length, self.nb_harmonics)
+                                   self.device, self.backcast_length, self.forecast_length, self.nb_harmonics, **self.argd)
                 self.parameters.extend(block.parameters())
             print(f'     | -- {block}')
             blocks.append(block)
@@ -302,15 +304,42 @@ class GenericBlock(Block):
 
         return backcast, forecast
 
+class Predictbypadding(nn.Module):
+    def __init__(self,insize,outsize):
+        super().__init__()
+        self.insize=insize
+        self.outsize=outsize
+
+    def forward(self,x):
+        return torch.zeros(len(x),*self.outsize,device=x.device)
+
+class Predictbyfc(nn.Module):
+    def __init__(self,insize,outsize):
+        super().__init__()
+        self.insize=insize
+        self.outsize=outsize
+        self.fc=nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(insize.numel(), outsize.numel()),
+            nn.ReLU(),
+            )
+
+    def forward(self,x):
+        return self.fc(x).reshape(len(x),*self.outsize)
+
 class GenericCNN(nn.Module):
+    PREDICT_METHOD={'pad':Predictbypadding,
+                    'fc':Predictbyfc}
+
     def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
-                 nb_harmonics=None):
+                 nb_harmonics=None,predictModule='pad'):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
         self.backcast_length = backcast_length
         self.forecast_length = forecast_length
         self.share_thetas = share_thetas
+        self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),torch.Size([thetas_dim,1]))
         self.device = device
 
         self.cnn1 = nn.Sequential(
@@ -330,7 +359,7 @@ class GenericCNN(nn.Module):
 			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False)
 			)
         self.basis = nn.Sequential(
-            nn.ConstantPad1d((0,1), 0),
+            # nn.ConstantPad1d((0,1), 0),
             nn.ConvTranspose1d(thetas_dim,thetas_dim,25,stride=20,output_padding=4),
             nn.ReLU(),
             nn.ConvTranspose1d(thetas_dim,1,24),
@@ -345,6 +374,7 @@ class GenericCNN(nn.Module):
         x = F.relu(self.cnn4(x))
 
         x=self.theta(x)
+        x=torch.cat([x,self.predictModule(x)],-1)
         x=self.basis(x)
         return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
 
@@ -354,11 +384,19 @@ class GenericCNN(nn.Module):
                f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
                f'share_thetas={self.share_thetas}) at @{id(self)}'
 
-class GenericCNNDilation(nn.Module):
-    def __init__(self,):
-        ...
+""" class GenericCNNDilation(nn.Module):
+    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
+                 nb_harmonics=None):
+        super(GenericCNN, self).__init__()
+        self.units = units
+        self.thetas_dim = thetas_dim
+        self.backcast_length = backcast_length
+        self.forecast_length = forecast_length
+        self.share_thetas = share_thetas
+        self.device = device """
 
 if __name__=='__main__':
-    test=GenericCNN(8,4,torch.device("cpu"),168,24)
-    k=test(torch.rand(5,1,168))
+    gtest=GenericBlock(8,4,torch.device("cpu"),168,24)
+    ctest=GenericCNN(8,4,torch.device("cpu"),168,24)
+    k=ctest(torch.rand(5,168))
     ...

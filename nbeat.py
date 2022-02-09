@@ -201,8 +201,9 @@ class ARGS():
 		parser.add_argument('-tdim','--thetas_dim',type=str,default='8,8')
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
+		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
 		#training setting
-		#TODO rngseed
+		#TODO cudaidx  check dev ->bool  
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
@@ -246,7 +247,7 @@ class ARGS():
 		print(f'pytorch ver. {torch.__version__}')
 		print(f'cuda ver. {torch.version.cuda}')
 		print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
-		print(f'use device: {(dev:=torch.device("cuda:1" if cuava else "cpu"))}')
+		print(f'use device: {(dev:=torch.device("cuda:0" if cuava else "cpu"))}')
 		print('=============================')
 		return dev
 	
@@ -278,7 +279,8 @@ if __name__=='__main__':#TODO batch execute
 		backcast_length=args.backcast_length,
 		thetas_dim=args.thetas_dim,
 		share_weights_in_stack=args.share_weights_in_stack,
-		hidden_layer_units=args.hidden_layer_units,)
+		hidden_layer_units=args.hidden_layer_units,
+		predictModule=args.predictModule)
 	
 	opt=torch.optim.Adam(net.parameters())
 	exp=Trainer(net,trainloader,valloader,nn.MSELoss(),opt,
