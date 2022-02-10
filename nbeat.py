@@ -204,6 +204,7 @@ class ARGS():
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
 		#training setting
 		#TODO cudaidx  check dev ->bool  
+		parser.add_argument('-d','--cudadevice',type=int,default=0)
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
@@ -218,7 +219,7 @@ class ARGS():
 		
 		self.args=parser.parse_args()
 		print(f'use args : {self.args}')
-		self.dev=self.checkDevice()
+		self.dev=self.checkDevice(self.args.cudadevice)
 		self.globalrng=np.random.default_rng(seed=self.args.rngseed)
 		
 	def __getattr__(self,key):
@@ -241,13 +242,13 @@ class ARGS():
 		return [int(i) for i in s.split(',')]
 	
 	@staticmethod
-	def checkDevice():
+	def checkDevice(cudadevice):
 		print('=============================')
 		print(f'python ver. {sys.version}')
 		print(f'pytorch ver. {torch.__version__}')
 		print(f'cuda ver. {torch.version.cuda}')
 		print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
-		print(f'use device: {(dev:=torch.device("cuda:0" if cuava else "cpu"))}')
+		print(f'use device: {(dev:=torch.device(f"cuda:{cudadevice}" if cuava else "cpu"))}')
 		print('=============================')
 		return dev
 	
