@@ -39,24 +39,14 @@ class Trainer():
 		iteration=-1
 # 		rng=np.random.default_rng()
 		for ep in range(epochs):
-			for batch,(x,y) in enumerate(self.trloader):#TODO useback2train
+			for batch,(x,y) in enumerate(self.trloader):#TODO useback2train to ratio?
 				iteration+=1
 				x,y=[i.squeeze(-1) for i in (x,y)]
-				""" self.model.train()
-				back,fore=self.model(x.to(self.device)) """
-				back,fore=self.inference_new(x,trmode=True,gd=True)
+				back,fore=self.inference(x,trmode=True,gd=True)
 
-				""" if self.useback2train is True:
-					fore=torch.cat((back,fore),-1)
-					y=torch.cat((x,y),1)
-				# loss=self.lossf(fore,y[...,0].to(self.device))+backcoef*self.lossf(back,torch.zeros_like(x[...,0]).to(self.device))
-				loss=self.lossf(fore,y[...,0].to(self.device)) """
-				lossall=self.evaluate_new(x,y,back,fore,useback=True)
-				lossfore=self.evaluate_new(x,y,back,fore,useback=False)
+				lossall=self.evaluate(x,y,back,fore,useback=True)
+				lossfore=self.evaluate(x,y,back,fore,useback=False)
 
-				""" self.opt.zero_grad()
-				loss.backward()
-				self.opt.step() """
 				self.update(lossall if self.useback2train else lossfore)
 				
 				if record[0]=='i' and iteration%(int(record[1:]))==0:
@@ -72,8 +62,8 @@ class Trainer():
 
 	def validate(self,ep,batch,itrn,trainlossall,trainlossfore):
 		# test_err=self.evaluate(self.valloader,self.lossf).item()
-		vall,vfore=np.mean([[self.evaluate_new(*[i.squeeze(-1) for i in (x,y)],
-												*self.inference_new(x,trmode=False,gd=False),useback=ub).cpu() for ub in (True,False)]
+		vall,vfore=np.mean([[self.evaluate(*[i.squeeze(-1) for i in (x,y)],
+												*self.inference(x,trmode=False,gd=False),useback=ub).cpu() for ub in (True,False)]
 				for x,y in self.valloader],axis=0)
 
 		""" stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
@@ -89,28 +79,22 @@ class Trainer():
 		self.writer.add_scalar('validate/fore',vfore,itrn)
 		
 		trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-		trainsample_b,trainsample_f=[i.cpu() for i in self.inference_new(trainsample_x,trmode=False,gd=False)]
+		trainsample_b,trainsample_f=[i.cpu() for i in self.inference(trainsample_x,trmode=False,gd=False)]
 		for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
 			self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
 			self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
 			
 		valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-		valsample_b,valsample_f=[i.cpu() for i in self.inference_new(valsample_x,trmode=False,gd=False)]
+		valsample_b,valsample_f=[i.cpu() for i in self.inference(valsample_x,trmode=False,gd=False)]
 		for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
 			self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
 			self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
 			self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
 		
 		self.writer.flush()
-		
-	""" def inference(self,data):
-		self.model.eval()
-		with torch.no_grad():
-			back,fore=self.model(data.to(self.device))
-			return back,fore """
 
-	def inference_new(self,data,trmode,gd):
+	def inference(self,data,trmode,gd):
 		data=data.to(self.device)
 		if trmode is True:
 			self.model.train()
@@ -122,24 +106,11 @@ class Trainer():
 		with torch.no_grad():
 			return self.model(data)
 	
-	def evaluate_new(self,x,y,b,f,useback):
+	def evaluate(self,x,y,b,f,useback):
 		if useback is True:
 			f=torch.cat((b,f),-1)
 			y=torch.cat((x,y),-1)
 		return self.lossf(f,y.to(self.device)) #+useback*self.lossf(b,x.to(self.device))
-
-	""" def evaluate(self,dataloader,metric): #TODO eval不含推斷
-		error=0
-		for batch,(x,gt) in enumerate(dataloader,1):
-# 		used,gt=pairdata
-			result=self.inference(x)
-			if self.useback2eval is True:
-				result=torch.cat(result,-1)
-				gt=torch.cat((x,gt),1)
-
-			error+=metric(result[1],gt[...,0].to(self.device))
-			
-		return error/batch """
 	
 	def plotall(self,x,y,b,f):
 		xl,yl=len(x),len(y)
@@ -203,7 +174,6 @@ class ARGS():
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
 		#training setting
-		#TODO cudaidx  check dev ->bool  
 		parser.add_argument('-d','--cudadevice',type=int,default=0)
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
@@ -252,7 +222,7 @@ class ARGS():
 		print('=============================')
 		return dev
 	
-if __name__=='__main__':#TODO batch execute
+if __name__=='__main__':
 	args=ARGS()
 	
 	rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
@@ -265,7 +235,7 @@ if __name__=='__main__':#TODO batch execute
 	wholedataset.setbackfore(args.backcast_length)
 
 	trainset,validateset=wholedataset.splitbyblock()
-	trainset.setrng(seed=args.globalrng.integers(1000000))
+	trainset.setrng(seed=args.globalrng.integers(1000000)) #generate a num as seed to control sample
 	trainset.setvisualindices(args.samplesize)
 	validateset.setvisualindices(args.samplesize)
 
