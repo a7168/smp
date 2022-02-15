@@ -24,7 +24,7 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir,useback2train,useback2eval):
+	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir,lossratio):
 		self.model=model.to(device)
 		self.trloader=trloader
 		self.valloader=valloader
@@ -32,51 +32,55 @@ class Trainer():
 		self.opt=opt
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
-		self.useback2train=useback2train
-		self.useback2eval=useback2eval
+		# self.useback2train=useback2train
+		# self.useback2eval=useback2eval
+		self.lossratio=lossratio
 		
 	def train(self,epochs,record):
 		iteration=-1
-# 		rng=np.random.default_rng()
 		for ep in range(epochs):
-			for batch,(x,y) in enumerate(self.trloader):#TODO useback2train to ratio?
+			for batch,(x,y) in enumerate(self.trloader):
 				iteration+=1
 				x,y=[i.squeeze(-1) for i in (x,y)]
 				back,fore=self.inference(x,trmode=True,gd=True)
 
-				lossall=self.evaluate(x,y,back,fore,useback=True)
-				lossfore=self.evaluate(x,y,back,fore,useback=False)
+				# lossall=self.evaluate(x,y,back,fore,useback=True)
+				# lossfore=self.evaluate(x,y,back,fore,useback=False)
+				loss=self.evaluate2(x,y,back,fore)
 
-				self.update(lossall if self.useback2train else lossfore)
+				# self.update(lossall if self.useback2train else lossfore)
+				self.update(sum([i*j for i,j in zip(loss,self.lossratio)]))
+
 				
 				if record[0]=='i' and iteration%(int(record[1:]))==0:
-					self.validate(ep,batch,iteration,lossall.item(),lossfore.item())
+					self.validate(ep,batch,iteration,loss)
 					
 			if record[0]=='e':
-				self.validate(ep,batch,iteration,lossall.item(),lossfore.item())
+				self.validate(ep,batch,iteration,loss)
 
 	def update(self,loss):
 		self.opt.zero_grad()
 		loss.backward()
 		self.opt.step()
 
-	def validate(self,ep,batch,itrn,trainlossall,trainlossfore):
-		# test_err=self.evaluate(self.valloader,self.lossf).item()
-		vall,vfore=np.mean([[self.evaluate(*[i.squeeze(-1) for i in (x,y)],
-												*self.inference(x,trmode=False,gd=False),useback=ub).cpu() for ub in (True,False)]
-				for x,y in self.valloader],axis=0)
+	def validate(self,ep,batch,itrn,trainloss):
+		# vall,vfore=np.mean([[self.evaluate(*[i.squeeze(-1) for i in (x,y)],*self.inference(x,trmode=False,gd=False),useback=ub).cpu() 
+		# 					for ub in (True,False)]
+		# 		for x,y in self.valloader],axis=0)
+		verr=np.mean([self.evaluate2(*[i.squeeze(-1) for i in (x,y)],
+									*self.inference(x,trmode=False,gd=False),tocpu=True) for x,y in self.valloader],axis=0)
 
-		""" stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
-		print(f'{stepstr} | train loss={trainloss:f} | test err={test_err:f}') """
 		stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
-		trainstr=f'train lossall={trainlossall:f} | train lossfore={trainlossfore:f}'
-		valstr=f'valiadate errall={vall:f} | valiadate errfore={vfore:f}'
-		print(f'{stepstr} | {trainstr} | {valstr}')
+		trainstr=f'train back={trainloss[0].item():f} | train fore={trainloss[1].item():f} | train all={trainloss[2].item():f}'
+		valstr=f'valiadate back={verr[0]:f} | valiadate fore={verr[1]:f} | valiadate all={verr[2]:f}'
+		print(f'{stepstr} ][ {trainstr} ][ {valstr}')
 		
-		self.writer.add_scalar('train/all',trainlossall,itrn)
-		self.writer.add_scalar('train/fore',trainlossfore,itrn)
-		self.writer.add_scalar('validate/all',vall,itrn)
-		self.writer.add_scalar('validate/fore',vfore,itrn)
+		self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
+		self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
+		self.writer.add_scalar('train/fore',trainloss[1].item(),itrn)
+		self.writer.add_scalar('validate/all',verr[2],itrn)
+		self.writer.add_scalar('validate/back',verr[0],itrn)
+		self.writer.add_scalar('validate/fore',verr[1],itrn)
 		
 		trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
 		trainsample_b,trainsample_f=[i.cpu() for i in self.inference(trainsample_x,trmode=False,gd=False)]
@@ -106,11 +110,18 @@ class Trainer():
 		with torch.no_grad():
 			return self.model(data)
 	
-	def evaluate(self,x,y,b,f,useback):
-		if useback is True:
-			f=torch.cat((b,f),-1)
-			y=torch.cat((x,y),-1)
-		return self.lossf(f,y.to(self.device)) #+useback*self.lossf(b,x.to(self.device))
+	# def evaluate(self,x,y,b,f,useback):
+	# 	if useback is True:
+	# 		f=torch.cat((b,f),-1)
+	# 		y=torch.cat((x,y),-1)
+	# 	return self.lossf(f,y.to(self.device)) #+useback*self.lossf(b,x.to(self.device))
+
+	def evaluate2(self,x,y,b,f,tocpu=False):
+		loss_back=self.lossf(b,x.to(self.device))
+		loss_fore=self.lossf(f,y.to(self.device))
+		loss_all =self.lossf(torch.cat((b,f),-1),torch.cat((x,y),-1).to(self.device))
+		loss=[i.cpu() if tocpu else i for i in (loss_back,loss_fore,loss_all)]
+		return loss
 	
 	def plotall(self,x,y,b,f):
 		xl,yl=len(x),len(y)
@@ -153,7 +164,6 @@ class Trainer():
 
 	
 class ARGS():
-	# rng=np.random.default_rng()
 	def __init__(self):
 		parser=argparse.ArgumentParser()
 		#dataset setting
@@ -173,6 +183,9 @@ class ARGS():
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
+		parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None)
+		parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None)
+
 		#training setting
 		parser.add_argument('-d','--cudadevice',type=int,default=0)
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
@@ -180,12 +193,12 @@ class ARGS():
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
 		parser.add_argument('-r','--record',type=str,default='e') #i100
 		parser.add_argument('-tb','--train_batch',type=int,default=512)
-		parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
+		# parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
 		parser.add_argument('-vb','--valid_batch',type=int,default=512)
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
-		# parser.add_argument('-bc','--backcoef',type=float,default=0)
-		parser.add_argument('-ub2t','--useback2train',type=bool,default=False)
-		parser.add_argument('-ub2e','--useback2eval',type=bool,default=False)
+		parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default=[0,0,1]) #
+		# parser.add_argument('-ub2t','--useback2train',type=bool,default=False)
+		# parser.add_argument('-ub2e','--useback2eval',type=bool,default=False)
 		
 		self.args=parser.parse_args()
 		print(f'use args : {self.args}')
@@ -198,7 +211,7 @@ class ARGS():
 		if key=='stack_types':
 			return self.getstacktype(attr)
 		elif key=='thetas_dim':
-			return self.getthetas_dim(attr)
+			return self.tonumlist(attr)
 		return attr
 	
 	@staticmethod
@@ -208,8 +221,12 @@ class ARGS():
 		return [stacktype.get(i) for i in s]
 	
 	@staticmethod
-	def getthetas_dim(s):
+	def tonumlist(s):
 		return [int(i) for i in s.split(',')]
+	
+	@staticmethod
+	def tofloatlist(s):
+		return [float(i) for i in s.split(',')]
 	
 	@staticmethod
 	def checkDevice(cudadevice):
@@ -251,14 +268,17 @@ if __name__=='__main__':
 		thetas_dim=args.thetas_dim,
 		share_weights_in_stack=args.share_weights_in_stack,
 		hidden_layer_units=args.hidden_layer_units,
-		predictModule=args.predictModule)
+		predictModule=args.predictModule,
+		predict_module_layer=args.predict_module_layer,
+		share_predict_module=args.share_predict_module)
 	
 	opt=torch.optim.Adam(net.parameters())
 	exp=Trainer(net,trainloader,valloader,nn.MSELoss(),opt,
 				device=args.dev,
 				tb_log_dir=args.tb_log_dir,
-				useback2train=args.useback2train,
-				useback2eval=args.useback2eval)
+				# useback2train=args.useback2train,
+				# useback2eval=args.useback2eval,
+				lossratio=args.lossratio)
 	print(f'params: {exp.count_params()}')
 	exp.train(epochs=args.epochs,
 		#    backcoef=args.backcoef,

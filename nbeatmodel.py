@@ -58,7 +58,7 @@ class NBeatsNet(nn.Module):
             if self.share_weights_in_stack and block_id != 0:
                 block = blocks[-1]  # pick up the last one when we share weights.
             else:
-                block = block_init(self.hidden_layer_units, self.thetas_dim[stack_id],
+                block = block_init(block_id, self.hidden_layer_units, self.thetas_dim[stack_id],
                                    self.device, self.backcast_length, self.forecast_length, self.nb_harmonics, **self.argd)
                 self.parameters.extend(block.parameters())
             print(f'     | -- {block}')
@@ -256,7 +256,7 @@ class Block(nn.Module):
 
 class SeasonalityBlock(Block):
 
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
         if nb_harmonics:
             super(SeasonalityBlock, self).__init__(units, nb_harmonics, device, backcast_length,
                                                    forecast_length, share_thetas=True)
@@ -273,7 +273,7 @@ class SeasonalityBlock(Block):
 
 class TrendBlock(Block):
 
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
        super(TrendBlock, self).__init__(units, thetas_dim, device, backcast_length,
                                          forecast_length, share_thetas=True)
 
@@ -286,7 +286,7 @@ class TrendBlock(Block):
 
 class GenericBlock(Block):
 
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
         super(GenericBlock, self).__init__(units, thetas_dim, device, backcast_length, forecast_length)
 
         self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
@@ -314,32 +314,47 @@ class Predictbypadding(nn.Module):
         return torch.zeros(len(x),*self.outsize,device=x.device)
 
 class Predictbyfc(nn.Module):
-    def __init__(self,insize,outsize):
+    def __init__(self,insize,outsize,predict_module_layer=[]):
         super().__init__()
         self.insize=insize
         self.outsize=outsize
-        self.fc=nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(insize.numel(), outsize.numel()),
+        self.flat=nn.Flatten()
+        self.nodes=[insize.numel()]+predict_module_layer+[outsize.numel()]
+        self.fc=nn.ModuleList([nn.Sequential(
+            nn.Linear(i,j),
             nn.ReLU(),
-            )
+            ) for i,j in zip(self.nodes,self.nodes[1:])]
+        )
 
     def forward(self,x):
-        return self.fc(x).reshape(len(x),*self.outsize)
+        x=self.flat(x)
+        for layer in self.fc:
+            x=layer(x)
+        return x.reshape(len(x),*self.outsize)
 
-class GenericCNN(nn.Module):
+    def __str__(self):
+        return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
+
+#TODO predictbyseq2seq
+class GenericCNN(nn.Module): #TODO predict_module share weight? block id to decide
     PREDICT_METHOD={'pad':Predictbypadding,
                     'fc':Predictbyfc}
 
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
-                 nb_harmonics=None,predictModule='pad'):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
+                 nb_harmonics=None,predictModule='pad',share_predict_module=False,**predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
         self.backcast_length = backcast_length
         self.forecast_length = forecast_length
         self.share_thetas = share_thetas
-        self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),torch.Size([thetas_dim,1]))
+
+        if block_id==0 or share_predict_module is False:
+            self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),
+                                            torch.Size([thetas_dim,1]),**predict_module_setting)
+            self.setsharedpredictmodule(self.predictModule)
+        else:
+            self.predictModule=self.sharedpredictModule
         self.device = device
 
         self.cnn1 = nn.Sequential(
@@ -356,7 +371,8 @@ class GenericCNN(nn.Module):
 			)
 		
         self.theta = nn.Sequential(
-			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False)
+			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False),
+            nn.ReLU(),
 			)
         self.basis = nn.Sequential(
             # nn.ConstantPad1d((0,1), 0),
@@ -382,21 +398,18 @@ class GenericCNN(nn.Module):
         block_type = type(self).__name__
         return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
                f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
-               f'share_thetas={self.share_thetas}) at @{id(self)}'
+               f'share_thetas={self.share_thetas}) at @{id(self)}\n' \
+               f'{self.predictModule}'
+    
+    @classmethod
+    def setsharedpredictmodule(cls,module):
+        cls.sharedpredictModule=module
 
-""" class GenericCNNDilation(nn.Module):
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
-                 nb_harmonics=None):
-        super(GenericCNN, self).__init__()
-        self.units = units
-        self.thetas_dim = thetas_dim
-        self.backcast_length = backcast_length
-        self.forecast_length = forecast_length
-        self.share_thetas = share_thetas
-        self.device = device """
 
 if __name__=='__main__':
     gtest=GenericBlock(8,4,torch.device("cpu"),168,24)
     ctest=GenericCNN(8,4,torch.device("cpu"),168,24)
+
+    ptest=Predictbyfc(torch.Size([4,7]),torch.Size([4,1]),predict_module_layer=[])
     k=ctest(torch.rand(5,168))
     ...
