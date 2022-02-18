@@ -7,6 +7,7 @@ Created on Fri Nov 12 16:12:25 2021
 
 import argparse
 import readIHEPC
+from readIHEPC import IHEPC
 import numpy as np
 import torch
 import torch.nn as nn
@@ -243,22 +244,33 @@ class ARGS():
 if __name__=='__main__':
 	args=ARGS()
 	
-	rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
-								usesubs=args.use_cols)
-	wholedataset=rawdata.parse(seqLength=args.timeunit*(args.forecast_length+args.backcast_length),
-								timeunit=args.timeunit,
-								align=args.align,
-								normalize=args.normalized_method,
-								nanRT=args.nanThreshold)
-	wholedataset.setbackfore(args.backcast_length)
+	dataset = IHEPC(datapath=args.datapath,
+					use_cols=args.use_cols,
+					timeunit=args.timeunit,
+					align=args.align,
+					normalized_method=args.normalized_method,
+					nanThreshold=args.nanThreshold,
+					forecast_length=args.forecast_length,
+					backcast_length=args.backcast_length,
+					globalrng=args.globalrng,
+					samplesize=args.samplesize)
 
-	trainset,validateset=wholedataset.splitbyblock()
-	trainset.setrng(seed=args.globalrng.integers(1000000)) #generate a num as seed to control sample
-	trainset.setvisualindices(args.samplesize)
-	validateset.setvisualindices(args.samplesize)
+	# rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
+	# 							usesubs=args.use_cols)
+	# wholedataset=rawdata.parse(seqLength=args.timeunit*(args.forecast_length+args.backcast_length),
+	# 							timeunit=args.timeunit,
+	# 							align=args.align,
+	# 							normalize=args.normalized_method,
+	# 							nanRT=args.nanThreshold)
+	# wholedataset.setbackfore(args.backcast_length)
 
-	trainloader=torch.utils.data.DataLoader(trainset,args.train_batch,shuffle=True)
-	valloader=torch.utils.data.DataLoader(validateset,args.valid_batch,shuffle=False)
+	# trainset,validateset=wholedataset.splitbyblock()
+	# trainset.setrng(seed=args.globalrng.integers(1000000)) #generate a num as seed to control sample
+	# trainset.setvisualindices(args.samplesize)
+	# validateset.setvisualindices(args.samplesize)
+
+	trainloader=torch.utils.data.DataLoader(dataset.trainset,args.train_batch,shuffle=True)
+	valloader=torch.utils.data.DataLoader(dataset.validateset,args.valid_batch,shuffle=False)
 	
 	net = NBeatsNet(
 		device=args.dev,

@@ -155,6 +155,30 @@ class IHEPCsubset(Data.Subset):
 		cls.rng=np.random.default_rng(seed=seed)
 	
 	
+class IHEPC():
+	def __init__(self,datapath,use_cols,
+				timeunit,align,normalized_method,nanThreshold,forecast_length,backcast_length,
+				globalrng,samplesize):
+		rawdata=IHEPCread(datasetpath=datapath,
+							usesubs=use_cols)
+		wholedataset=rawdata.parse(seqLength=timeunit*(forecast_length+backcast_length),
+									timeunit=timeunit,
+									align=align,
+									normalize=normalized_method,
+									nanRT=nanThreshold)
+		wholedataset.setbackfore(backcast_length)
+
+		trainset,validateset=wholedataset.splitbyblock()
+		trainset.setrng(seed=self.generate_seed(globalrng,1000000)) #generate a num as seed to control sample
+		trainset.setvisualindices(samplesize)
+		validateset.setvisualindices(samplesize)
+		self.trainset=trainset
+		self.validateset=validateset
+
+	@staticmethod
+	def generate_seed(rng,maxseed):
+		return rng.integers(maxseed)
+
 
 if __name__=='__main__':
 	ihepcdf=IHEPCread('dataset/IHEPC/household_power_consumption.txt',usesubs='g')
