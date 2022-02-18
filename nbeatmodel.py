@@ -11,7 +11,7 @@ from torch.nn.functional import mse_loss, l1_loss, binary_cross_entropy, cross_e
 from torch.optim import Optimizer
 
 
-class NBeatsNet(nn.Module):
+class NBeatsNet(nn.Module):#TODO loss computation belong to model
     SEASONALITY_BLOCK = 'seasonality'
     TREND_BLOCK = 'trend'
     GENERIC_BLOCK = 'generic'
@@ -312,6 +312,9 @@ class Predictbypadding(nn.Module):
 
     def forward(self,x):
         return torch.zeros(len(x),*self.outsize,device=x.device)
+    
+    def __str__(self):
+        return f'         | -- {type(self).__name__}(layers=None) at @{id(self)}'
 
 class Predictbyfc(nn.Module):
     def __init__(self,insize,outsize,predict_module_layer=[]):
@@ -335,10 +338,27 @@ class Predictbyfc(nn.Module):
     def __str__(self):
         return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
 
+class PredictbyLSTM(nn.Module): #TODO LSTM layer proj?
+    def __init__(self,insize,outsize,predict_module_num_layers=1):
+        super().__init__()
+        self.insize=insize
+        self.outsize=outsize
+        self.lstm=nn.LSTM(insize[0],outsize[0],num_layers=predict_module_num_layers)
+
+    def forward(self,x):
+        x=x.permute(2,0,1) #origin(batch,channel,seq)
+        self.lstm.flatten_parameters()
+        _,(h,c)=self.lstm(x)
+        return h[-1:].permute(1,2,0)
+
+    def __str__(self):
+        return f'         | -- {type(self).__name__}(layers={self.lstm}) at @{id(self)}'
+
 #TODO predictbyseq2seq
-class GenericCNN(nn.Module): #TODO predict_module share weight? block id to decide
+class GenericCNN(nn.Module):
     PREDICT_METHOD={'pad':Predictbypadding,
-                    'fc':Predictbyfc}
+                    'fc':Predictbyfc,
+                    'lstm':PredictbyLSTM}
 
     def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
                  nb_harmonics=None,predictModule='pad',share_predict_module=False,**predict_module_setting):
