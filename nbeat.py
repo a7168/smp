@@ -33,8 +33,6 @@ class Trainer():
 		self.opt=opt
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
-		# self.useback2train=useback2train
-		# self.useback2eval=useback2eval
 		self.lossratio=lossratio
 		
 	def train(self,epochs,record):
@@ -65,9 +63,6 @@ class Trainer():
 		self.opt.step()
 
 	def validate(self,ep,batch,itrn,trainloss):
-		# vall,vfore=np.mean([[self.evaluate(*[i.squeeze(-1) for i in (x,y)],*self.inference(x,trmode=False,gd=False),useback=ub).cpu() 
-		# 					for ub in (True,False)]
-		# 		for x,y in self.valloader],axis=0)
 		verr=np.mean([self.evaluate2(*[i.squeeze(-1) for i in (x,y)],
 									*self.inference(x,trmode=False,gd=False),tocpu=True) for x,y in self.valloader],axis=0)
 
@@ -168,7 +163,7 @@ class ARGS():
 	def __init__(self): #TODO parse arg by tb_log_dir?
 		parser=argparse.ArgumentParser()
 		#dataset setting
-		parser.add_argument('-dp','--datapath',type=str,default='dataset/IHEPC/household_power_consumption.txt')
+		parser.add_argument('-dp','--datapath',type=str,nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
 		parser.add_argument('-uc','--use_cols',type=str,default='g')
 		parser.add_argument('-tu','--timeunit',type=int,default=60)
 		parser.add_argument('-a','--align',type=int,default=60)
@@ -199,8 +194,6 @@ class ARGS():
 		parser.add_argument('-vb','--valid_batch',type=int,default=512)
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
 		parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default=[0,0,1]) #
-		# parser.add_argument('-ub2t','--useback2train',type=bool,default=False)
-		# parser.add_argument('-ub2e','--useback2eval',type=bool,default=False)
 		
 		self.args=parser.parse_args()
 		print(f'use args : {self.args}')
@@ -253,7 +246,9 @@ if __name__=='__main__':
 					forecast_length=args.forecast_length,
 					backcast_length=args.backcast_length,
 					globalrng=args.globalrng,
-					samplesize=args.samplesize)
+					samplesize=args.samplesize,
+					train_batch=args.train_batch,
+					valid_batch=args.valid_batch,)
 
 	# rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
 	# 							usesubs=args.use_cols)
@@ -269,8 +264,8 @@ if __name__=='__main__':
 	# trainset.setvisualindices(args.samplesize)
 	# validateset.setvisualindices(args.samplesize)
 
-	trainloader=torch.utils.data.DataLoader(dataset.trainset,args.train_batch,shuffle=True)
-	valloader=torch.utils.data.DataLoader(dataset.validateset,args.valid_batch,shuffle=False)
+	# trainloader=torch.utils.data.DataLoader(dataset.trainset,args.train_batch,shuffle=True)
+	# valloader=torch.utils.data.DataLoader(dataset.validateset,args.valid_batch,shuffle=False)
 	
 	net = NBeatsNet(
 		device=args.dev,
@@ -287,14 +282,11 @@ if __name__=='__main__':
 		predict_module_num_layers=args.predict_module_num_layers)
 	
 	opt=torch.optim.Adam(net.parameters())
-	exp=Trainer(net,trainloader,valloader,nn.MSELoss(),opt,
+	exp=Trainer(net,dataset.trainloader,dataset.valloader,nn.MSELoss(),opt,
 				device=args.dev,
 				tb_log_dir=args.tb_log_dir,
-				# useback2train=args.useback2train,
-				# useback2eval=args.useback2eval,
 				lossratio=args.lossratio)
 	print(f'params: {exp.count_params()}')
 	exp.train(epochs=args.epochs,
-		#    backcoef=args.backcoef,
 		   record=args.record)
 	...

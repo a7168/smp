@@ -7,6 +7,7 @@ Created on Fri Oct 22 14:34:01 2021
 
 import pandas as pd
 import numpy as np
+import torch
 import torch.utils.data as Data
 from torch.utils.data.dataset import Dataset
 
@@ -158,8 +159,9 @@ class IHEPCsubset(Data.Subset):
 class IHEPC():
 	def __init__(self,datapath,use_cols,
 				timeunit,align,normalized_method,nanThreshold,forecast_length,backcast_length,
-				globalrng,samplesize):
-		rawdata=IHEPCread(datasetpath=datapath,
+				globalrng,samplesize,
+				train_batch,valid_batch):
+		rawdata=IHEPCread(datasetpath=datapath[0],
 							usesubs=use_cols)
 		wholedataset=rawdata.parse(seqLength=timeunit*(forecast_length+backcast_length),
 									timeunit=timeunit,
@@ -172,8 +174,14 @@ class IHEPC():
 		trainset.setrng(seed=self.generate_seed(globalrng,1000000)) #generate a num as seed to control sample
 		trainset.setvisualindices(samplesize)
 		validateset.setvisualindices(samplesize)
+
+		trainloader=torch.utils.data.DataLoader(trainset,train_batch,shuffle=True)
+		valloader=torch.utils.data.DataLoader(validateset,valid_batch,shuffle=False)
+		
 		self.trainset=trainset
 		self.validateset=validateset
+		self.trainloader=trainloader
+		self.valloader=valloader
 
 	@staticmethod
 	def generate_seed(rng,maxseed):
