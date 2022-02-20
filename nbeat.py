@@ -8,6 +8,7 @@ Created on Fri Nov 12 16:12:25 2021
 import argparse
 import readIHEPC
 from readIHEPC import IHEPC
+from readTMbase import TMbase
 import numpy as np
 import torch
 import torch.nn as nn
@@ -163,6 +164,7 @@ class ARGS():
 	def __init__(self): #TODO parse arg by tb_log_dir?
 		parser=argparse.ArgumentParser()
 		#dataset setting
+		parser.add_argument('-ds','--dataset',type=str,default='IHEPC')
 		parser.add_argument('-dp','--datapath',type=str,nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
 		parser.add_argument('-uc','--use_cols',type=str,default='g')
 		parser.add_argument('-tu','--timeunit',type=int,default=60)
@@ -209,6 +211,10 @@ class ARGS():
 			return self.tonumlist(attr)
 		return attr
 	
+	def datasetprep(self):
+		return {'IHEPC':IHEPC,
+				'TMbase':TMbase}.get(self.dataset)
+
 	@staticmethod
 	def getstacktype(s):
 		stacktype={'g':NBeatsNet.GENERIC_BLOCK,'s':NBeatsNet.SEASONALITY_BLOCK,
@@ -236,8 +242,8 @@ class ARGS():
 	
 if __name__=='__main__':
 	args=ARGS()
-	
-	dataset = IHEPC(datapath=args.datapath,
+	prep=args.datasetprep()
+	dataset = prep(datapath=args.datapath,
 					use_cols=args.use_cols,
 					timeunit=args.timeunit,
 					align=args.align,
