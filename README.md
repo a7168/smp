@@ -3,6 +3,7 @@ Smart Meter Project
 
 directory structure
 ------
+![directory structure](https://user-images.githubusercontent.com/56117848/154844224-db988106-d88b-45f9-b049-8681a55f7fb6.png)
 
 
 env
