@@ -22,3 +22,4 @@ reference
 ------
 [1] [nbeats paper](https://openreview.net/forum?id=r1ecqn4YwB)  
 [2] [nbeats source code](https://github.com/philipperemy/n-beats)  
+[3] [IHEPC dataset](https://archive.ics.uci.edu/ml/datasets/Individual+household+electric+power+consumption)
