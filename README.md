@@ -12,12 +12,13 @@ Environment
 
 | Package        |        Version |
 | :------------- | -------------: |
-| python         |         3.8.11 |
-| pytorch        |          1.7.1 |
-| cudatoolkit    |           10.1 |
-| numpy          |         1.20.3 |
-| pandas         |          1.3.3 |
-| matplotlib     |          3.4.2 |
+| python         |          3.9.7 |
+| pytorch        |         1.10.2 |
+| cudatoolkit    |         11.3.1 |
+| numpy          |         1.21.2 |
+| pandas         |          1.4.1 |
+| matplotlib     |          3.5.1 |
+| tensorboard    |          2.8.0 |
 
 
 Run on terminal
