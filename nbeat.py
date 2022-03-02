@@ -6,7 +6,6 @@ Created on Fri Nov 12 16:12:25 2021
 """
 
 import argparse
-import readIHEPC
 from readIHEPC import IHEPC
 from readTMbase import TMbase
 import numpy as np
@@ -44,11 +43,8 @@ class Trainer():
 				x,y=[i.squeeze(-1) for i in (x,y)]
 				back,fore=self.inference(x,trmode=True,gd=True)
 
-				# lossall=self.evaluate(x,y,back,fore,useback=True)
-				# lossfore=self.evaluate(x,y,back,fore,useback=False)
-				loss=self.evaluate2(x,y,back,fore)
+				loss=self.evaluate(x,y,back,fore)
 
-				# self.update(lossall if self.useback2train else lossfore)
 				self.update(sum([i*j for i,j in zip(loss,self.lossratio)]))
 
 				
@@ -64,7 +60,7 @@ class Trainer():
 		self.opt.step()
 
 	def validate(self,ep,batch,itrn,trainloss):
-		verr=np.mean([self.evaluate2(*[i.squeeze(-1) for i in (x,y)],
+		verr=np.mean([self.evaluate(*[i.squeeze(-1) for i in (x,y)],
 									*self.inference(x,trmode=False,gd=False),tocpu=True) for x,y in self.valloader],axis=0)
 
 		stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
@@ -107,13 +103,8 @@ class Trainer():
 		with torch.no_grad():
 			return self.model(data)
 	
-	# def evaluate(self,x,y,b,f,useback):
-	# 	if useback is True:
-	# 		f=torch.cat((b,f),-1)
-	# 		y=torch.cat((x,y),-1)
-	# 	return self.lossf(f,y.to(self.device)) #+useback*self.lossf(b,x.to(self.device))
 
-	def evaluate2(self,x,y,b,f,tocpu=False):
+	def evaluate(self,x,y,b,f,tocpu=False):
 		loss_back=self.lossf(b,x.to(self.device))
 		loss_fore=self.lossf(f,y.to(self.device))
 		loss_all =self.lossf(torch.cat((b,f),-1),torch.cat((x,y),-1).to(self.device))
@@ -256,23 +247,6 @@ if __name__=='__main__':
 					samplesize=args.samplesize,
 					train_batch=args.train_batch,
 					valid_batch=args.valid_batch,)
-
-	# rawdata=readIHEPC.IHEPCread(datasetpath=args.datapath,
-	# 							usesubs=args.use_cols)
-	# wholedataset=rawdata.parse(seqLength=args.timeunit*(args.forecast_length+args.backcast_length),
-	# 							timeunit=args.timeunit,
-	# 							align=args.align,
-	# 							normalize=args.normalized_method,
-	# 							nanRT=args.nanThreshold)
-	# wholedataset.setbackfore(args.backcast_length)
-
-	# trainset,validateset=wholedataset.splitbyblock()
-	# trainset.setrng(seed=args.globalrng.integers(1000000)) #generate a num as seed to control sample
-	# trainset.setvisualindices(args.samplesize)
-	# validateset.setvisualindices(args.samplesize)
-
-	# trainloader=torch.utils.data.DataLoader(dataset.trainset,args.train_batch,shuffle=True)
-	# valloader=torch.utils.data.DataLoader(dataset.validateset,args.valid_batch,shuffle=False)
 	
 	net = NBeatsNet(
 		device=args.dev,
