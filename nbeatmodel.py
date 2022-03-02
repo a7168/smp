@@ -339,11 +339,14 @@ class Predictbyfc(nn.Module):
         return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
 
 class PredictbyLSTM(nn.Module): #TODO LSTM layer proj?
-    def __init__(self,insize,outsize,predict_module_num_layers=1):
+    def __init__(self,insize,outsize,predict_module_hidden_size=None,predict_module_num_layers=1):
         super().__init__()
         self.insize=insize
         self.outsize=outsize
-        self.lstm=nn.LSTM(insize[0],outsize[0],num_layers=predict_module_num_layers)
+        self.lstm=(nn.LSTM(insize[0],outsize[0],num_layers=predict_module_num_layers) 
+                   if predict_module_hidden_size is None
+                   else nn.LSTM(insize[0],predict_module_hidden_size,num_layers=predict_module_num_layers,proj_size=outsize[0]))
+        ...
 
     def forward(self,x):
         x=x.permute(2,0,1) #origin(batch,channel,seq)

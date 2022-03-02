@@ -183,6 +183,7 @@ class ARGS():
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
 		parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None)
 		parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None)
+		parser.add_argument('-pmhz','--predict_module_hidden_size',type=lambda s:None if s=='' else int(s),default=None)
 		parser.add_argument('-pmnl','--predict_module_num_layers',type=lambda s:None if s=='' else int(s),default=None)
 
 		#training setting
@@ -285,6 +286,7 @@ if __name__=='__main__':
 		predictModule=args.predictModule,
 		predict_module_layer=args.predict_module_layer,
 		share_predict_module=args.share_predict_module,
+		predict_module_hidden_size=args.predict_module_hidden_size,
 		predict_module_num_layers=args.predict_module_num_layers)
 	
 	opt=torch.optim.Adam(net.parameters())
