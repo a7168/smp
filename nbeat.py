@@ -34,6 +34,8 @@ class Trainer():
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
 		self.lossratio=lossratio
+
+		print(f'params: {self.count_params()}')
 		
 	def train(self,epochs,record):
 		iteration=-1
@@ -164,11 +166,11 @@ class ARGS():
 		parser.add_argument('-nt','--nanThreshold',type=int,default=100)
 		
 		#model setting
-		parser.add_argument('-st','--stack_types',type=str,default='gg')
+		parser.add_argument('-st','--stack_types',type=self.getstacktype,default='gg')
 		parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=3)
 		parser.add_argument('-fl','--forecast_length',type=int,default=24)
 		parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
-		parser.add_argument('-tdim','--thetas_dim',type=str,default='8,8')
+		parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='8,8')
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
@@ -187,25 +189,21 @@ class ARGS():
 		# parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
 		parser.add_argument('-vb','--valid_batch',type=int,default=512)
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
-		parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default=[0,0,1]) #
+		parser.add_argument('-tl','--trainlosstype',type=self.lossfunc,default='huber')
+		parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default='0,0,1')
+		parser.add_argument('-opt','--optimizer',type=self.optalgo,default='adam')
 		
 		self.args=parser.parse_args()
-		print(f'use args : {self.args}')
+		print(f'use args : =============')
+		print(f'{self.args}')
 		self.dev=self.checkDevice(self.args.cudadevice)
 		self.globalrng=np.random.default_rng(seed=self.args.rngseed)
+		self.datasetprep={'IHEPC':IHEPC,
+                          'TMbase':TMbase}.get(self.dataset)
+		...
 		
 	def __getattr__(self,key):
-		attr=getattr(self.args,key)
-		
-		if key=='stack_types':
-			return self.getstacktype(attr)
-		elif key=='thetas_dim':
-			return self.tonumlist(attr)
-		return attr
-	
-	def datasetprep(self):
-		return {'IHEPC':IHEPC,
-				'TMbase':TMbase}.get(self.dataset)
+		return getattr(self.args,key)
 
 	@staticmethod
 	def getstacktype(s):
@@ -220,7 +218,20 @@ class ARGS():
 	@staticmethod
 	def tofloatlist(s):
 		return [float(i) for i in s.split(',')]
-	
+
+	@staticmethod
+	def lossfunc(s):
+		lossdict={'mae':nn.L1Loss,
+				'mse':nn.MSELoss,
+				'huber':nn.HuberLoss,}
+		return lossdict.get(s)
+
+	@staticmethod
+	def optalgo(s):
+		optdict={'adam':torch.optim.Adam,
+				'sgd':torch.optim.SGD,}
+		return optdict.get(s)
+
 	@staticmethod
 	def checkDevice(cudadevice):
 		print('=============================')
@@ -234,19 +245,19 @@ class ARGS():
 	
 if __name__=='__main__':
 	args=ARGS()
-	prep=args.datasetprep()
-	dataset = prep(datapath=args.datapath,
-					use_cols=args.use_cols,
-					timeunit=args.timeunit,
-					align=args.align,
-					normalized_method=args.normalized_method,
-					nanThreshold=args.nanThreshold,
-					forecast_length=args.forecast_length,
-					backcast_length=args.backcast_length,
-					globalrng=args.globalrng,
-					samplesize=args.samplesize,
-					train_batch=args.train_batch,
-					valid_batch=args.valid_batch,)
+	# prep=args.datasetprep
+	dataset=args.datasetprep(datapath=args.datapath,
+							use_cols=args.use_cols,
+							timeunit=args.timeunit,
+							align=args.align,
+							normalized_method=args.normalized_method,
+							nanThreshold=args.nanThreshold,
+							forecast_length=args.forecast_length,
+							backcast_length=args.backcast_length,
+							globalrng=args.globalrng,
+							samplesize=args.samplesize,
+							train_batch=args.train_batch,
+							valid_batch=args.valid_batch,)
 	
 	net = NBeatsNet(
 		device=args.dev,
@@ -263,12 +274,15 @@ if __name__=='__main__':
 		predict_module_hidden_size=args.predict_module_hidden_size,
 		predict_module_num_layers=args.predict_module_num_layers)
 	
-	opt=torch.optim.Adam(net.parameters())
-	exp=Trainer(net,dataset.trainloader,dataset.valloader,nn.MSELoss(),opt,
+	exp=Trainer(model=net,
+				trloader=dataset.trainloader,
+				valloader=dataset.valloader,
+				lossf=args.trainlosstype(),
+				opt=args.optimizer(net.parameters()),
 				device=args.dev,
 				tb_log_dir=args.tb_log_dir,
 				lossratio=args.lossratio)
-	print(f'params: {exp.count_params()}')
+	
 	exp.train(epochs=args.epochs,
 		   record=args.record)
 	...
