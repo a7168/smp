@@ -25,11 +25,12 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-	def __init__(self,model,trloader,valloader,lossf,opt,device,tb_log_dir,lossratio):
+	def __init__(self,model,trloader,valloader,lossf,evmetric,opt,device,tb_log_dir,lossratio):
 		self.model=model.to(device)
 		self.trloader=trloader
 		self.valloader=valloader
 		self.lossf=lossf
+		self.evmetric=evmetric
 		self.opt=opt
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
@@ -45,7 +46,7 @@ class Trainer():
 				x,y=[i.squeeze(-1) for i in (x,y)]
 				back,fore=self.inference(x,trmode=True,gd=True)
 
-				loss=self.evaluate(x,y,back,fore)
+				loss=self.evaluate(x,y,back,fore,metric=self.lossf)
 
 				self.update(sum([i*j for i,j in zip(loss,self.lossratio)]))
 
@@ -63,7 +64,7 @@ class Trainer():
 
 	def validate(self,ep,batch,itrn,trainloss):
 		verr=np.mean([self.evaluate(*[i.squeeze(-1) for i in (x,y)],
-									*self.inference(x,trmode=False,gd=False),tocpu=True) for x,y in self.valloader],axis=0)
+									*self.inference(x,trmode=False,gd=False),metric=self.evmetric,tocpu=True) for x,y in self.valloader],axis=0)
 
 		stepstr=f'epoch/batch/iteration : {ep}/{batch}/{itrn}'
 		trainstr=f'train back={trainloss[0].item():f} | train fore={trainloss[1].item():f} | train all={trainloss[2].item():f}'
@@ -106,10 +107,10 @@ class Trainer():
 			return self.model(data)
 	
 
-	def evaluate(self,x,y,b,f,tocpu=False):
-		loss_back=self.lossf(b,x.to(self.device))
-		loss_fore=self.lossf(f,y.to(self.device))
-		loss_all =self.lossf(torch.cat((b,f),-1),torch.cat((x,y),-1).to(self.device))
+	def evaluate(self,x,y,b,f,metric,tocpu=False):
+		loss_back=metric(b,x.to(self.device))
+		loss_fore=metric(f,y.to(self.device))
+		loss_all =metric(torch.cat((b,f),-1),torch.cat((x,y),-1).to(self.device))
 		loss=[i.cpu() if tocpu else i for i in (loss_back,loss_fore,loss_all)]
 		return loss
 	
@@ -191,6 +192,7 @@ class ARGS():
 		parser.add_argument('-ss','--samplesize',type=int,default=8)
 		parser.add_argument('-tl','--trainlosstype',type=self.lossfunc,default='huber')
 		parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default='0,0,1')
+		parser.add_argument('-em','--evaluatemetric',type=self.lossfunc,default='mae')
 		parser.add_argument('-opt','--optimizer',type=self.optalgo,default='adam')
 		
 		self.args=parser.parse_args()
@@ -278,6 +280,7 @@ if __name__=='__main__':
 				trloader=dataset.trainloader,
 				valloader=dataset.valloader,
 				lossf=args.trainlosstype(),
+				evmetric=args.evaluatemetric(),
 				opt=args.optimizer(net.parameters()),
 				device=args.dev,
 				tb_log_dir=args.tb_log_dir,

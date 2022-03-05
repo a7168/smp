@@ -26,6 +26,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                  thetas_dim=(4, 8),
                  share_weights_in_stack=False,
                  hidden_layer_units=256,
+                 backbone_layers=4,
                  nb_harmonics=None,
                  **argd):
         super(NBeatsNet, self).__init__()
@@ -35,6 +36,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         self.hidden_layer_units = hidden_layer_units
         self.nb_blocks_per_stack = nb_blocks_per_stack
         self.share_weights_in_stack = share_weights_in_stack
+        self.backbone_layers=backbone_layers
         self.nb_harmonics = nb_harmonics
         self.stack_types = stack_types
         self.stacks = []
@@ -59,7 +61,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                 block = blocks[-1]  # pick up the last one when we share weights.
             else:
                 block = block_init(block_id, self.hidden_layer_units, self.thetas_dim[stack_id],
-                                   self.device, self.backcast_length, self.forecast_length, self.nb_harmonics, **self.argd)
+                                   self.device, self.backcast_length, self.forecast_length, self.backbone_layers, self.nb_harmonics, **self.argd)
                 self.parameters.extend(block.parameters())
             print(f'     | -- {block}')
             blocks.append(block)
@@ -219,7 +221,7 @@ def linear_space(backcast_length, forecast_length):
 
 class Block(nn.Module):
 
-    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
+    def __init__(self, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4,share_thetas=False,
                  nb_harmonics=None):
         super(Block, self).__init__()
         self.units = units
@@ -227,10 +229,12 @@ class Block(nn.Module):
         self.backcast_length = backcast_length
         self.forecast_length = forecast_length
         self.share_thetas = share_thetas
-        self.fc1 = nn.Linear(backcast_length, units)
-        self.fc2 = nn.Linear(units, units)
-        self.fc3 = nn.Linear(units, units)
-        self.fc4 = nn.Linear(units, units)
+
+        fcstack=[]
+        for i in range(backbone_layers):
+            fcstack=fcstack+[nn.Linear(units if i!=0 else backcast_length, units), nn.ReLU()]
+        self.fcstack=nn.Sequential(*fcstack)
+
         self.device = device
         self.backcast_linspace, self.forecast_linspace = linear_space(backcast_length, forecast_length)
         if share_thetas:
@@ -241,10 +245,8 @@ class Block(nn.Module):
 
     def forward(self, x):
         x = squeeze_last_dim(x)
-        x = F.relu(self.fc1(x.to(self.device)))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
+        x = x.to(self.device)
+        x = self.fcstack(x)
         return x
 
     def __str__(self):
@@ -256,13 +258,13 @@ class Block(nn.Module):
 
 class SeasonalityBlock(Block):
 
-    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4, nb_harmonics=None):
         if nb_harmonics:
             super(SeasonalityBlock, self).__init__(units, nb_harmonics, device, backcast_length,
-                                                   forecast_length, share_thetas=True)
+                                                   forecast_length, backbone_layers, share_thetas=True)
         else:
             super(SeasonalityBlock, self).__init__(units, forecast_length, device, backcast_length,
-                                                   forecast_length, share_thetas=True)
+                                                   forecast_length, backbone_layers, share_thetas=True)
 
     def forward(self, x):
         x = super(SeasonalityBlock, self).forward(x)
@@ -273,9 +275,9 @@ class SeasonalityBlock(Block):
 
 class TrendBlock(Block):
 
-    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4,nb_harmonics=None):
        super(TrendBlock, self).__init__(units, thetas_dim, device, backcast_length,
-                                         forecast_length, share_thetas=True)
+                                         forecast_length, backbone_layers, share_thetas=True)
 
     def forward(self, x):
         x = super(TrendBlock, self).forward(x)
@@ -286,8 +288,8 @@ class TrendBlock(Block):
 
 class GenericBlock(Block):
 
-    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, nb_harmonics=None):
-        super(GenericBlock, self).__init__(units, thetas_dim, device, backcast_length, forecast_length)
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4, nb_harmonics=None):
+        super(GenericBlock, self).__init__(units, thetas_dim, device, backcast_length, forecast_length, backbone_layers)
 
         self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
         self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
@@ -338,7 +340,7 @@ class Predictbyfc(nn.Module):
     def __str__(self):
         return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
 
-class PredictbyLSTM(nn.Module): #TODO LSTM layer proj?
+class PredictbyLSTM(nn.Module):
     def __init__(self,insize,outsize,predict_module_hidden_size=None,predict_module_num_layers=1):
         super().__init__()
         self.insize=insize
@@ -351,8 +353,8 @@ class PredictbyLSTM(nn.Module): #TODO LSTM layer proj?
     def forward(self,x):
         x=x.permute(2,0,1) #origin(batch,channel,seq)
         self.lstm.flatten_parameters()
-        _,(h,c)=self.lstm(x)
-        return h[-1:].permute(1,2,0)
+        o,(h,c)=self.lstm(x)
+        return o[-1:].permute(1,2,0)
 
     def __str__(self):
         return f'         | -- {type(self).__name__}(layers={self.lstm}) at @{id(self)}'
@@ -363,57 +365,51 @@ class GenericCNN(nn.Module):
                     'fc':Predictbyfc,
                     'lstm':PredictbyLSTM}
 
-    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, share_thetas=False,
-                 nb_harmonics=None,predictModule='pad',share_predict_module=False,**predict_module_setting):
+    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4, share_thetas=False,
+                 nb_harmonics=None,predictModule=None,share_predict_module=False,**predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
         self.backcast_length = backcast_length
         self.forecast_length = forecast_length
         self.share_thetas = share_thetas
-
-        if block_id==0 or share_predict_module is False:
-            self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),
-                                            torch.Size([thetas_dim,1]),**predict_module_setting)
-            self.setsharedpredictmodule(self.predictModule)
-        else:
-            self.predictModule=self.sharedpredictModule
         self.device = device
 
-        self.cnn1 = nn.Sequential(
-			nn.Conv1d(1,units,6)
-			)
-        self.cnn2 = nn.Sequential(
-			nn.Conv1d(units,units,7)
-			)
-        self.cnn3 = nn.Sequential(
-			nn.Conv1d(units,units,7)
-			)
-        self.cnn4 = nn.Sequential(
-			nn.Conv1d(units,units,7)
-			)
+        if predictModule is not None:
+            if block_id==0 or share_predict_module is False:
+                self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),
+                                                torch.Size([thetas_dim,1]),**predict_module_setting)
+                self.setsharedpredictmodule(self.predictModule)
+            else:
+                self.predictModule=self.sharedpredictModule
+        else:
+            self.predictModule=None
+
+        cnnstack=[]
+        for i in range(backbone_layers):
+            cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,7,padding='same'), nn.ReLU()]
+        self.cnnstack=nn.Sequential(*cnnstack)
 		
         self.theta = nn.Sequential(
-			nn.Conv1d(units,thetas_dim,25,stride=20,bias=False),
+			nn.Conv1d(units,thetas_dim,24,stride=24,bias=False),
             nn.ReLU(),
 			)
-        self.basis = nn.Sequential(
-            # nn.ConstantPad1d((0,1), 0),
-            nn.ConvTranspose1d(thetas_dim,thetas_dim,25,stride=20,output_padding=4),
+        self.basis = nn.ConvTranspose1d(thetas_dim,1,24,stride=24) if predictModule is not None else nn.Sequential(
+            nn.ConvTranspose1d(thetas_dim,thetas_dim,24,stride=24),
             nn.ReLU(),
-            nn.ConvTranspose1d(thetas_dim,1,24),
+            nn.ConvTranspose1d(thetas_dim,1,25),
         )
+        ...
 
     def forward(self, x):
 # 		x = squeeze_last_dim(x)
         x=x.unsqueeze(1)
-        x = F.relu(self.cnn1(x.to(self.device)))
-        x = F.relu(self.cnn2(x))
-        x = F.relu(self.cnn3(x))
-        x = F.relu(self.cnn4(x))
-
+        x=x.to(self.device)
+        x= self.cnnstack(x)
         x=self.theta(x)
-        x=torch.cat([x,self.predictModule(x)],-1)
+
+        if self.predictModule is not None:
+            x=torch.cat([x,self.predictModule(x)],-1)
         x=self.basis(x)
         return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
 
@@ -422,7 +418,7 @@ class GenericCNN(nn.Module):
         return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
                f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
                f'share_thetas={self.share_thetas}) at @{id(self)}\n' \
-               f'{self.predictModule}'
+               f'{self.predictModule if self.predictModule is not None else "         | -- No predict module"}'
     
     @classmethod
     def setsharedpredictmodule(cls,module):
@@ -430,9 +426,10 @@ class GenericCNN(nn.Module):
 
 
 if __name__=='__main__':
-    gtest=GenericBlock(8,4,torch.device("cpu"),168,24)
-    ctest=GenericCNN(8,4,torch.device("cpu"),168,24)
+    gtest=GenericBlock(0,8,4,torch.device("cpu"),168,24)
+    ctest=GenericCNN(0,8,4,torch.device("cpu"),168,24)
 
     ptest=Predictbyfc(torch.Size([4,7]),torch.Size([4,1]),predict_module_layer=[])
+    k=gtest(torch.rand(5,168))
     k=ctest(torch.rand(5,168))
     ...
