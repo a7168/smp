@@ -9,6 +9,7 @@ import argparse
 from readIHEPC import IHEPC
 from readTMbase import TMbase
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import sys
@@ -35,10 +36,13 @@ class Trainer():
 		self.device=device
 		self.writer=SummaryWriter(tb_log_dir)
 		self.lossratio=lossratio
+		self.logdf=pd.DataFrame(columns=['epoch','batch','iteration',
+										'train_back','train_fore','train_all',
+										'valiadate_back','valiadate_fore','valiadate_all'])
 
 		print(f'params: {self.count_params()}')
 		
-	def train(self,epochs,record):
+	def train(self,epochs,record,save_model_path):
 		iteration=-1
 		for ep in range(epochs):
 			for batch,(x,y) in enumerate(self.trloader):
@@ -52,17 +56,17 @@ class Trainer():
 
 				
 				if record[0]=='i' and iteration%(int(record[1:]))==0:
-					self.validate(ep,batch,iteration,loss)
+					self.validate(ep,batch,iteration,loss,save_model_path)
 					
 			if record[0]=='e':
-				self.validate(ep,batch,iteration,loss)
+				self.validate(ep,batch,iteration,loss,save_model_path)
 
 	def update(self,loss):
 		self.opt.zero_grad()
 		loss.backward()
 		self.opt.step()
 
-	def validate(self,ep,batch,itrn,trainloss):
+	def validate(self,ep,batch,itrn,trainloss,save_model_path):
 		verr=np.mean([self.evaluate(*[i.squeeze(-1) for i in (x,y)],
 									*self.inference(x,trmode=False,gd=False),metric=self.evmetric,tocpu=True) for x,y in self.valloader],axis=0)
 
@@ -70,6 +74,12 @@ class Trainer():
 		trainstr=f'train back={trainloss[0].item():f} | train fore={trainloss[1].item():f} | train all={trainloss[2].item():f}'
 		valstr=f'valiadate back={verr[0]:f} | valiadate fore={verr[1]:f} | valiadate all={verr[2]:f}'
 		print(f'{stepstr} ][ {trainstr} ][ {valstr}')
+		infodict={'epoch':[ep],'batch':[batch],'iteration':[itrn],
+				'train_back':[trainloss[0].item()],'train_fore':[trainloss[1].item()],'train_all':[trainloss[2].item()],
+				'valiadate_back':[verr[0]],'valiadate_fore':[verr[1]],'valiadate_all':[verr[2]]}
+		isbestresult=self.add_log(infodict,selectby='valiadate_fore')
+		if isbestresult and save_model_path is not None:
+			self.save(save_model_path)
 		
 		self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
 		self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
@@ -148,10 +158,22 @@ class Trainer():
 		fig.tight_layout()
 		return fig
 
+	def add_log(self,infodict,selectby=None):
+		# self.logdf=self.logdf.append(infodict,ignore_index=True) 
+		self.logdf=pd.concat([self.logdf,pd.DataFrame(infodict)],ignore_index=True)
+		if selectby is not None:
+			return self.logdf[selectby].iloc[-1] <= self.logdf[selectby].min()
+
 	def count_params(self,cond='all'):
 		cond_f={'all':lambda x:True,
 				'trainable':lambda x:x.requires_grad}.get(cond)
 		return sum(p.numel() for p in self.model.parameters() if cond_f(p))
+
+	def save(self,path):
+		torch.save(self.model.state_dict(),path)
+
+	def load(self,path):
+		self.model.load_state_dict(torch.load(path))
 
 	
 class ARGS():
@@ -168,12 +190,12 @@ class ARGS():
 		
 		#model setting
 		parser.add_argument('-st','--stack_types',type=self.getstacktype,default='gg')
-		parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=3)
+		parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=2)
 		parser.add_argument('-fl','--forecast_length',type=int,default=24)
 		parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
 		parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='8,8')
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
-		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=128)
+		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
 		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
 		parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None)
 		parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None)
@@ -185,6 +207,7 @@ class ARGS():
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
 		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
+		parser.add_argument('-smp','--save_model_path',type=str,default=None)
 		parser.add_argument('-r','--record',type=str,default='e') #i100
 		parser.add_argument('-tb','--train_batch',type=int,default=512)
 		# parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
@@ -287,5 +310,6 @@ if __name__=='__main__':
 				lossratio=args.lossratio)
 	
 	exp.train(epochs=args.epochs,
-		   record=args.record)
+		   record=args.record,
+		   save_model_path=args.save_model_path)
 	...

@@ -3,20 +3,33 @@ Created on Fri Feb 18 16:21:42 2022
 
 @author: egoist
 """
+import json
 import math
 import pandas as pd
 import numpy as np
 import torch
 import torch.utils.data as Data
+from matplotlib import pyplot as plt
 from torch.utils.data.dataset import Dataset
 
 
 class TMbaseset(Dataset):
-	def __init__(self,datapath):
+	def __init__(self,datapath,use_cols):
 		dfs=[pd.read_csv(d,index_col=0) for d in datapath]
 		df=pd.concat(dfs,ignore_index=True).dropna(axis=1)
-		self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
+		useless_list=self.data_cleansing(df,0.01,120*5,0)
+		df=df.drop(useless_list, axis=1)
+
+		if use_cols=='g':
+			self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
+		else:
+			self.data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
 		...
+		
+	@staticmethod
+	def save_use_list(df,path='dataset/TMbase/use_list.json'):
+		with open('use_list.json', 'w', encoding='utf-8') as f:
+			json.dump([i for i in df.columns if i !='time'], f, ensure_ascii=False, indent=4)
 
 	def parse(self,seqLength,normalize):
 		self.seqLength=seqLength
@@ -52,6 +65,81 @@ class TMbaseset(Dataset):
 		validate=self.indices[-bound:]
 		return TMbasesubset(self,train),TMbasesubset(self,validate)
 
+	@staticmethod
+	def data_cleansing(input,value_threshold,conti_day,gragh):
+		""" input : dataframe
+			value_threshold : the value considered to small to be recorded
+			conti_day : continue days of abscent value
+			gragh : 0 no gragh 1 only useless gragh 2 only useful gragh 3 all
+			output : a list with all the abondan electricity meter"""
+		useless_cnt = 0
+		useless_list = []
+		each_sensor = input.columns
+		for sensor in each_sensor:
+			useless = False
+			if sensor == "time":
+				continue
+			data = list(input[sensor])
+			valid = []
+			for i in range(len(data)):
+				if data[i] == 0:
+					valid.append(False)
+				else:
+					valid.append(True)
+			scatter_x = np.arange(len(data))
+			scatter_y = np.zeros((len(data),))
+			cont_zero = 0
+			normal_cnt = 0
+			in_con = False
+			for i in range(len(data)):
+				scatter_y[i] = data[i]
+				if data[i] < value_threshold and not in_con:
+					in_con = True
+					cont_zero += 1
+					normal_cnt = 0
+				elif in_con and data[i] < value_threshold:
+					cont_zero += 1
+					if normal_cnt > 1:
+						normal_cnt -= 1
+				elif in_con and data[i] >= value_threshold:
+					normal_cnt += 1
+				if normal_cnt > 5:
+					in_con = False
+					cont_zero = 0
+				if cont_zero > conti_day:
+					useless = True
+			group = np.zeros(len(data),)
+			for i in range(len(data)):
+				if valid[i] == True:
+					group[i] = 2
+				else: 
+					group[i] = 2
+			cdict = {1: 'red', 2: 'blue'}
+			if useless:
+				k = "useless"
+			else:
+				k = "useful"
+			if useless:
+				useless_cnt += 1
+				useless_list.append(sensor)
+			if gragh == 0:
+				continue
+			elif gragh == 1:
+				if not useless:
+					continue
+			elif gragh == 2:
+				if useless:
+					continue  
+			fig, ax = plt.subplots(figsize=(30,10))
+			for g in np.unique(group):
+				ix = np.where(group == g)
+				ax.plot(scatter_x[ix], scatter_y[ix], c = cdict[g], label = g)
+			ax.legend()
+			plt.title(sensor + " " + str(k),fontsize = 20)
+			plt.show()
+		print("Abandon ratio : " + str(useless_cnt / len(each_sensor) * 100) + "%")
+		return useless_list
+
 class TMbasesubset(Data.Subset):
 	def __init__(self,dataset,indices):
 		super().__init__(dataset,indices)
@@ -79,7 +167,7 @@ class TMbase():
 				globalrng,samplesize,
 				train_batch,valid_batch):
 
-		rawdata=TMbaseset(datapath)
+		rawdata=TMbaseset(datapath,use_cols)
 		rawdata.parse(seqLength=timeunit*(forecast_length+backcast_length),
 						normalize=normalized_method,)
 		rawdata.setbackfore(backcast_length)
@@ -104,7 +192,9 @@ class TMbase():
 
 def _localtest():
 	rawdata=TMbaseset(['dataset/TMbase/data_200501_211031.csv',
-						'dataset/TMbase/data_2111.csv'])
+						'dataset/TMbase/data_2111.csv',
+						'dataset/TMbase/data_2112.csv',
+						'dataset/TMbase/data_2201.csv'],'g')
 	rawdata.parse(seqLength=7*24+24,
 						normalize='z',)
 	rawdata.setbackfore(7*24)
