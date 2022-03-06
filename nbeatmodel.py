@@ -67,12 +67,12 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             blocks.append(block)
         return blocks
 
-    def save(self, filename: str):
-        torch.save(self, filename)
+    # def save(self, filename: str):
+    #     torch.save(self, filename)
 
-    @staticmethod
-    def load(f, map_location=None, pickle_module=pickle, **pickle_load_args):
-        return torch.load(f, map_location, pickle_module, **pickle_load_args)
+    # @staticmethod
+    # def load(f, map_location=None, pickle_module=pickle, **pickle_load_args):
+    #     return torch.load(f, map_location, pickle_module, **pickle_load_args)
 
     @staticmethod
     def select_block(block_type):
@@ -184,10 +184,28 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             return squeeze_last_dim(rawbackcast)-backcast, forecast, stacks
         return squeeze_last_dim(rawbackcast)-backcast, forecast
 
+    def inference(self,data,trmode,gd):
+        data=data.to(self.device)
+        if trmode is True:
+            self.train()
+        else:
+            self.eval()
+
+        if gd is True:
+            return self(data)
+        with torch.no_grad():
+            return self(data)
+
     def count_params(self,cond='all'):
         cond_f={'all':lambda x:True,
                 'trainable':lambda x:x.requires_grad}.get(cond)
         return sum(p.numel() for p in self.parameters() if cond_f(p))
+
+    def save(self,path):
+        torch.save(self.state_dict(),path)
+
+    def load(self,path):
+        self.load_state_dict(torch.load(path))
 
 def squeeze_last_dim(tensor):
     if len(tensor.shape) == 3 and tensor.shape[-1] == 1:  # (128, 10, 1) => (128, 10).
