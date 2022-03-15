@@ -19,6 +19,9 @@ class TMbaseset(Dataset):
 		df=pd.concat(dfs,ignore_index=True).dropna(axis=1)
 		useless_list=self.data_cleansing(df,0.01,120*5,0)
 		df=df.drop(useless_list, axis=1)
+		self.df=df
+		self.start=pd.to_datetime(self.df['time'])[0]
+		self.df_normalize_each=((self.df-self.df.mean())/self.df.std()).fillna(self.df)
 
 		if use_cols=='g':
 			self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
@@ -28,7 +31,7 @@ class TMbaseset(Dataset):
 		
 	@staticmethod
 	def save_use_list(df,path='dataset/TMbase/use_list.json'):
-		with open('use_list.json', 'w', encoding='utf-8') as f:
+		with open(path, 'w', encoding='utf-8') as f:
 			json.dump([i for i in df.columns if i !='time'], f, ensure_ascii=False, indent=4)
 
 	def parse(self,seqLength,normalize):
@@ -44,6 +47,12 @@ class TMbaseset(Dataset):
 		head=self.indices[index]
 		seq=self.data[head:head+self.seqLength]
 		return seq[:self.sep[0]],seq[self.sep[1]:]
+
+	def getitembydate(self,date,length=1):
+		date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(*date)
+		startidx=(date-self.start).days*24
+		return self.df_normalize_each.iloc[startidx:startidx+24*length]
+		...
 
 	def __len__(self):
 		return len(self.indices)
@@ -194,10 +203,13 @@ def _localtest():
 	rawdata=TMbaseset(['dataset/TMbase/data_200501_211031.csv',
 						'dataset/TMbase/data_2111.csv',
 						'dataset/TMbase/data_2112.csv',
-						'dataset/TMbase/data_2201.csv'],'g')
+						'dataset/TMbase/data_2201.csv',
+						'dataset/TMbase/data_2202.csv',
+						],'g')
 	rawdata.parse(seqLength=7*24+24,
 						normalize='z',)
 	rawdata.setbackfore(7*24)
+	trainset,validateset=rawdata.splitbyratio(0.1)
 	...
 
 if __name__=='__main__':
