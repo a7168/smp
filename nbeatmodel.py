@@ -18,6 +18,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
     GENERIC_CNN = 'GenericCNN'
 
     def __init__(self,
+                 name,
                  device=torch.device('cpu'),
                  stack_types=(TREND_BLOCK, SEASONALITY_BLOCK),
                  nb_blocks_per_stack=3,
@@ -30,6 +31,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                  nb_harmonics=None,
                  **argd):
         super(NBeatsNet, self).__init__()
+        self.name=name
         self.argd={i:j for i,j in argd.items() if j is not None}
         self.forecast_length = forecast_length
         self.backcast_length = backcast_length
@@ -60,8 +62,15 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             if self.share_weights_in_stack and block_id != 0:
                 block = blocks[-1]  # pick up the last one when we share weights.
             else:
-                block = block_init(block_id, self.hidden_layer_units, self.thetas_dim[stack_id],
-                                   self.device, self.backcast_length, self.forecast_length, self.backbone_layers, self.nb_harmonics, **self.argd)
+                block = block_init(block_id=block_id,
+                                   units=self.hidden_layer_units,
+                                   thetas_dim=self.thetas_dim[stack_id],
+                                   device=self.device,
+                                   backcast_length=self.backcast_length,
+                                   forecast_length=self.forecast_length,
+                                   backbone_layers=self.backbone_layers,
+                                   nb_harmonics=self.nb_harmonics,
+                                   **self.argd)
                 self.parameters.extend(block.parameters())
             print(f'     | -- {block}')
             blocks.append(block)
@@ -201,11 +210,40 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                 'trainable':lambda x:x.requires_grad}.get(cond)
         return sum(p.numel() for p in self.parameters() if cond_f(p))
 
-    def save(self,path):
-        torch.save(self.state_dict(),path)
+    def save(self,path,other_info={}):#TODO set name and save property state_dict type for isinstance  sethyperpara
+        torch.save({'type':'nbeats',
+                    'infodict':self.get_infodict(),
+                    'weight':self.state_dict()}|other_info,path)
 
-    def load(self,path):
-        self.load_state_dict(torch.load(path))
+    @classmethod
+    def build(cls,path,new_name=None,new_device=None):
+        mdict=torch.load(path,map_location=new_device)
+        ndict={'name':new_name,'device':new_device,}
+        if mdict['type']=='nbeats':
+            model=cls(**mdict['infodict']|{i:j for i,j in ndict.items() if j is not None})
+            model.load_state_dict(mdict['weight'])
+            return model
+        else:
+            print('this is not nbeats.')
+        ...
+
+
+    def loadbyfile(self,path,map_location=None):
+        self.load_state_dict(torch.load(path,map_location=map_location))
+
+    def get_infodict(self):
+        return {'name':self.name,
+                'device':self.device,
+                 'stack_types':self.stack_types,
+                 'nb_blocks_per_stack':self.nb_blocks_per_stack,
+                 'forecast_length':self.forecast_length,
+                 'backcast_length':self.backcast_length,
+                 'thetas_dim':self.thetas_dim,
+                 'share_weights_in_stack':self.share_weights_in_stack,
+                 'hidden_layer_units':self.hidden_layer_units,
+                 'backbone_layers':self.backbone_layers,
+                 'nb_harmonics':self.nb_harmonics,
+                 } | self.argd
 
 def squeeze_last_dim(tensor):
     if len(tensor.shape) == 3 and tensor.shape[-1] == 1:  # (128, 10, 1) => (128, 10).
@@ -383,8 +421,8 @@ class GenericCNN(nn.Module):
                     'fc':Predictbyfc,
                     'lstm':PredictbyLSTM}
 
-    def __init__(self, block_id, units, thetas_dim, device, backcast_length=10, forecast_length=5, backbone_layers=4, share_thetas=False,
-                 nb_harmonics=None,predictModule=None,share_predict_module=False,**predict_module_setting):
+    def __init__(self,block_id,units,thetas_dim,device,backcast_length=10,forecast_length=5,backbone_layers=4,
+                 share_thetas=False,nb_harmonics=None,predictModule=None,share_predict_module=False,backbone_kernel_size=7,**predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
@@ -405,7 +443,7 @@ class GenericCNN(nn.Module):
 
         cnnstack=[]
         for i in range(backbone_layers):
-            cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,7,padding='same'), nn.ReLU()]
+            cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
         self.cnnstack=nn.Sequential(*cnnstack)
 		
         self.theta = nn.Sequential(

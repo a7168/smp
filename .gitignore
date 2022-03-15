@@ -1,6 +1,7 @@
 .vscode
 __pycache__
 dataset
+log
 model
 runs*
 *.sh

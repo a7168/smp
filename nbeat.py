@@ -13,6 +13,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import sys
+import os
 from torch.utils.tensorboard import SummaryWriter
 # =============================================================================
 # import matplotlib as mpl
@@ -42,7 +43,7 @@ class Trainer():
 
 		print(f'params: {self.count_params()}')
 		
-	def train(self,epochs,record,save_model_path):
+	def train(self,epochs,record,save_log_path,save_model_path):
 		iteration=-1
 		for ep in range(epochs):
 			for batch,(x,y) in enumerate(self.trloader):
@@ -60,6 +61,9 @@ class Trainer():
 					
 			if record[0]=='e':
 				self.validate(ep,batch,iteration,loss,save_model_path)
+		if save_log_path is not None:
+			self.logdf.to_csv(save_log_path)
+		...
 
 	def update(self,loss):
 		self.opt.zero_grad()
@@ -79,7 +83,7 @@ class Trainer():
 				'valiadate_back':[verr[0]],'valiadate_fore':[verr[1]],'valiadate_all':[verr[2]]}
 		isbestresult=self.add_log(infodict,selectby='valiadate_fore')
 		if isbestresult and save_model_path is not None:
-			self.save(save_model_path)
+			self.model.save(save_model_path,other_info={'iteration':itrn})
 		
 		self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
 		self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
@@ -169,11 +173,11 @@ class Trainer():
 				'trainable':lambda x:x.requires_grad}.get(cond)
 		return sum(p.numel() for p in self.model.parameters() if cond_f(p))
 
-	def save(self,path):
-		torch.save(self.model.state_dict(),path)
+	# def save(self,path):
+	# 	torch.save(self.model.state_dict(),path)
 
-	def load(self,path):
-		self.model.load_state_dict(torch.load(path))
+	# def load(self,path):
+	# 	self.model.load_state_dict(torch.load(path))
 
 	
 class ARGS():
@@ -181,7 +185,8 @@ class ARGS():
 		parser=argparse.ArgumentParser()
 		#dataset setting
 		parser.add_argument('-ds','--dataset',type=str,default='IHEPC')
-		parser.add_argument('-dp','--datapath',type=str,nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
+		# self.args=parser.parse_known_args()[0]
+		parser.add_argument('-dp','--datapath',type=self.adddatasetprefix(parser),nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
 		parser.add_argument('-uc','--use_cols',type=str,default='g')
 		parser.add_argument('-tu','--timeunit',type=int,default=60)
 		parser.add_argument('-a','--align',type=int,default=60)
@@ -191,23 +196,27 @@ class ARGS():
 		#model setting
 		parser.add_argument('-st','--stack_types',type=self.getstacktype,default='gg')
 		parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=2)
+		parser.add_argument('-bbl','--backbone_layers',type=int,default=2)
+		parser.add_argument('-bbk','--backbone_kernel_size',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
 		parser.add_argument('-fl','--forecast_length',type=int,default=24)
 		parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
-		parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='8,8')
+		parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='4,4')
 		parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
 		parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
-		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None)
-		parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None)
-		parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None)
-		parser.add_argument('-pmhz','--predict_module_hidden_size',type=lambda s:None if s=='' else int(s),default=None)
-		parser.add_argument('-pmnl','--predict_module_num_layers',type=lambda s:None if s=='' else int(s),default=None)
+		parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None) #for cnn block
+		parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None) #for cnn block
+		parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None) #for cnn block
+		parser.add_argument('-pmhz','--predict_module_hidden_size',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
+		parser.add_argument('-pmnl','--predict_module_num_layers',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
 
 		#training setting
+		parser.add_argument('-n','--name',type=str,default=None)
 		parser.add_argument('-d','--cudadevice',type=int,default=0)
 		parser.add_argument('-rs','--rngseed',type=int,default=None)
 		parser.add_argument('-e','--epochs',type=int,default=35)
-		parser.add_argument('-tbd','--tb_log_dir',type=str,default=None)
-		parser.add_argument('-smp','--save_model_path',type=str,default=None)
+		parser.add_argument('-tbd','--tb_log_dir',type=self.addtbprefix(parser),default=None)
+		parser.add_argument('-smp','--save_model_path',type=self.addmdlprefix(parser),default=None)
+		parser.add_argument('-slp','--save_log_path',type=self.addlogprefix(parser),default=None)
 		parser.add_argument('-r','--record',type=str,default='e') #i100
 		parser.add_argument('-tb','--train_batch',type=int,default=512)
 		# parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
@@ -229,6 +238,41 @@ class ARGS():
 		
 	def __getattr__(self,key):
 		return getattr(self.args,key)
+
+	@staticmethod
+	def addtbprefix(parser):
+		args=parser.parse_known_args()[0]
+		def func(s):
+			return f'runs/{s}/{args.name}' if s!='' else None
+		return func
+
+	@staticmethod
+	def addmdlprefix(parser):
+		args=parser.parse_known_args()[0]
+		def func(s):
+			prefix=f'model/{s}'
+			if not os.path.isdir(prefix):
+				os.makedirs(prefix)
+			return f'{prefix}/{args.name}.mdl' if s!='' else None
+		return func
+
+	@staticmethod
+	def addlogprefix(parser):
+		args=parser.parse_known_args()[0]
+		def func(s):
+			prefix=f'log/{s}'
+			if not os.path.isdir(prefix):
+				os.makedirs(prefix)
+			return f'{prefix}/{args.name}.csv' if s!='' else None
+		return func
+
+
+	@staticmethod
+	def adddatasetprefix(parser):
+		args=parser.parse_known_args()[0]
+		def func(s):
+			return f'dataset/{args.dataset}/{s}'
+		return func
 
 	@staticmethod
 	def getstacktype(s):
@@ -285,6 +329,7 @@ if __name__=='__main__':
 							valid_batch=args.valid_batch,)
 	
 	net = NBeatsNet(
+		name=args.name,
 		device=args.dev,
 		stack_types=args.stack_types,
 		nb_blocks_per_stack=args.nb_blocks_per_stack,
@@ -293,6 +338,8 @@ if __name__=='__main__':
 		thetas_dim=args.thetas_dim,
 		share_weights_in_stack=args.share_weights_in_stack,
 		hidden_layer_units=args.hidden_layer_units,
+		backbone_layers=args.backbone_layers,
+		backbone_kernel_size=args.backbone_kernel_size,
 		predictModule=args.predictModule,
 		predict_module_layer=args.predict_module_layer,
 		share_predict_module=args.share_predict_module,
@@ -311,5 +358,6 @@ if __name__=='__main__':
 	
 	exp.train(epochs=args.epochs,
 		   record=args.record,
+		   save_log_path=args.save_log_path,
 		   save_model_path=args.save_model_path)
 	...
