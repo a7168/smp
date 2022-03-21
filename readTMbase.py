@@ -1,14 +1,22 @@
-"""
-Created on Fri Feb 18 16:21:42 2022
+'''
+Author: Egoist
+Date: 2022-02-18 16:21:42
+LastEditors: Egoist
+LastEditTime: 2022-03-21 14:39:36
+FilePath: /smp/readTMbase.py
+Description: 
 
-@author: egoist
-"""
+'''
+
 import json
 import math
 import pandas as pd
 import numpy as np
 import torch
 import torch.utils.data as Data
+
+# import matplotlib as mpl
+# mpl.use('TkAgg')
 from matplotlib import pyplot as plt
 from torch.utils.data.dataset import Dataset
 
@@ -17,16 +25,21 @@ class TMbaseset(Dataset):
 	def __init__(self,datapath,use_cols):
 		dfs=[pd.read_csv(d,index_col=0) for d in datapath]
 		df=pd.concat(dfs,ignore_index=True).dropna(axis=1)
-		useless_list=self.data_cleansing(df,0.01,120*5,0)
-		df=df.drop(useless_list, axis=1)
 		self.df=df
+		# self.total_df=df
+		# useless_list=self.data_cleansing(df,0.01,120*5,0)
+		# df=df.drop(useless_list, axis=1)
+		
 		self.start=pd.to_datetime(self.df['time'])[0]
-		self.df_normalize_each=((self.df-self.df.mean())/self.df.std()).fillna(self.df)
-
-		if use_cols=='g':
-			self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
-		else:
-			self.data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
+		self.df_normalize_each=((self.df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
+		column_without_time=[c for c in df.columns if c !='time']
+		df_numpy=df[column_without_time].to_numpy()
+		self.df_normalize_all=(df[column_without_time]-df_numpy.mean())/df_numpy.std()
+		self.df_normalize_all.insert(0,'time',df['time'])
+		# if use_cols=='g':
+		# 	self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
+		# else:
+		# 	self.data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
 		...
 		
 	@staticmethod
@@ -34,11 +47,23 @@ class TMbaseset(Dataset):
 		with open(path, 'w', encoding='utf-8') as f:
 			json.dump([i for i in df.columns if i !='time'], f, ensure_ascii=False, indent=4)
 
-	def parse(self,seqLength,normalize):
+	def parse(self,date_range,threshold,normalize,use_cols,seqLength):
+		#select used dataset range
+		df=self.select_timerange(self.df,date_range[0],date_range[1]) if date_range is not None else self.df
+
+		if use_cols=='g':
+			if threshold is not None:
+				useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
+				df=df.drop(useless_list, axis=1)
+			data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
+		else:
+			data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
+
+		self.data={'max':self.normalize01,
+					'z':self.normalizeZ}.get(normalize)(data)
+
 		self.seqLength=seqLength
 		self.indices=list(range(0,len(self.data)-seqLength+1))
-		self.data={'max':self.normalize01,
-					'z':self.normalizeZ}.get(normalize)()
 
 	def setbackfore(self,backend,forestart=None):
 		self.sep=(backend,forestart if forestart is not None else backend)
@@ -48,24 +73,38 @@ class TMbaseset(Dataset):
 		seq=self.data[head:head+self.seqLength]
 		return seq[:self.sep[0]],seq[self.sep[1]:]
 
-	def getitembydate(self,date,length=1):
+	def getitembydate(self,date,dtype='neach',nstart=None,nend=None,length=1):
+		# data={'raw':self.df,'neach':self.df_normalize_each,'nall':self.df_normalize_all}
+		data=((self.df-self.select_timerange(self.df,nstart,nend).mean(numeric_only=True))/self.select_timerange(self.df,nstart,nend).std(numeric_only=True)).fillna(self.df)
+
+
 		date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(*date)
 		startidx=(date-self.start).days*24
-		return self.df_normalize_each.iloc[startidx:startidx+24*length]
+
+		return data.iloc[startidx:startidx+24*length]
 		...
+
+	@staticmethod
+	def select_timerange(df,start_date,end_date):
+		t0=pd.to_datetime(df['time'])[0]
+		idx_start=(start_date-t0).days*24 if start_date is not None else None
+		idx_end=(end_date-t0).days*24+24 if end_date is not None else None
+		return df.iloc[idx_start:idx_end]
 
 	def __len__(self):
 		return len(self.indices)
 
-	def normalizeZ(self):#z-normalization
-		mean=self.data.mean()
-		std=self.data.std()
-		return (self.data-mean)/std
+	@staticmethod
+	def normalizeZ(data):#z-normalization for dataframe
+		mean=data.mean()
+		std=data.std()
+		return (data-mean)/std
 	
-	def normalize01(self):#map to 0-1
-		dfmax=self.data.max()
-		dfmin=self.data.min()
-		return (self.data-dfmin)/(dfmax-dfmin)
+	@staticmethod
+	def normalize01(data):#map to 0-1 for dataframe
+		dfmax=data.max()
+		dfmin=data.min()
+		return (data-dfmin)/(dfmax-dfmin)
 
 	def splitbyratio(self,ratio): #use last block to validate
 		total=len(self)
@@ -73,6 +112,10 @@ class TMbaseset(Dataset):
 		train=self.indices[:-bound]
 		validate=self.indices[-bound:]
 		return TMbasesubset(self,train),TMbasesubset(self,validate)
+
+	# @staticmethod
+	# def getnormalize_df(df,start,end):
+	# 	return ((df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
 
 	@staticmethod
 	def data_cleansing(input,value_threshold,conti_day,gragh):
@@ -171,14 +214,19 @@ class TMbasesubset(Data.Subset):
 		cls.rng=np.random.default_rng(seed=seed)
 
 class TMbase():
-	def __init__(self,datapath,use_cols,
-				timeunit,align,normalized_method,nanThreshold,forecast_length,backcast_length,
+	def __init__(self,datapath,
+				date_range,data_clean_threshold,normalized_method,use_cols,
+				timeunit,align,
+				forecast_length,backcast_length,
 				globalrng,samplesize,
 				train_batch,valid_batch):
 
 		rawdata=TMbaseset(datapath,use_cols)
-		rawdata.parse(seqLength=timeunit*(forecast_length+backcast_length),
-						normalize=normalized_method,)
+		rawdata.parse(date_range=date_range,
+						threshold=data_clean_threshold,
+						normalize=normalized_method,
+						use_cols=use_cols,
+						seqLength=timeunit*(forecast_length+backcast_length),)
 		rawdata.setbackfore(backcast_length)
 
 		trainset,validateset=rawdata.splitbyratio(0.1)
@@ -205,7 +253,7 @@ def _localtest():
 						'dataset/TMbase/data_2112.csv',
 						'dataset/TMbase/data_2201.csv',
 						'dataset/TMbase/data_2202.csv',
-						],'g')
+						],'N19-F21-A09')
 	rawdata.parse(seqLength=7*24+24,
 						normalize='z',)
 	rawdata.setbackfore(7*24)

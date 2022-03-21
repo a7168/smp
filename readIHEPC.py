@@ -157,8 +157,10 @@ class IHEPCsubset(Data.Subset):
 	
 	
 class IHEPC():
-	def __init__(self,datapath,use_cols,
-				timeunit,align,normalized_method,nanThreshold,forecast_length,backcast_length,
+	def __init__(self,datapath,
+				date_range,data_clean_threshold,normalized_method,use_cols,
+				timeunit,align, #data_clean_threshold, nanThreshold,
+				forecast_length,backcast_length,
 				globalrng,samplesize,
 				train_batch,valid_batch):
 		rawdata=IHEPCread(datasetpath=datapath[0],
@@ -167,7 +169,7 @@ class IHEPC():
 									timeunit=timeunit,
 									align=align,
 									normalize=normalized_method,
-									nanRT=nanThreshold)
+									nanRT=data_clean_threshold['length'])
 		wholedataset.setbackfore(backcast_length)
 
 		trainset,validateset=wholedataset.splitbyblock()
