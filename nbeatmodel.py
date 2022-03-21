@@ -234,16 +234,16 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
     def get_infodict(self):
         return {'name':self.name,
                 'device':self.device,
-                 'stack_types':self.stack_types,
-                 'nb_blocks_per_stack':self.nb_blocks_per_stack,
-                 'forecast_length':self.forecast_length,
-                 'backcast_length':self.backcast_length,
-                 'thetas_dim':self.thetas_dim,
-                 'share_weights_in_stack':self.share_weights_in_stack,
-                 'hidden_layer_units':self.hidden_layer_units,
-                 'backbone_layers':self.backbone_layers,
-                 'nb_harmonics':self.nb_harmonics,
-                 } | self.argd
+                'stack_types':self.stack_types,
+                'nb_blocks_per_stack':self.nb_blocks_per_stack,
+                'forecast_length':self.forecast_length,
+                'backcast_length':self.backcast_length,
+                'thetas_dim':self.thetas_dim,
+                'share_weights_in_stack':self.share_weights_in_stack,
+                'hidden_layer_units':self.hidden_layer_units,
+                'backbone_layers':self.backbone_layers,
+                'nb_harmonics':self.nb_harmonics,
+                } | self.argd
 
 def squeeze_last_dim(tensor):
     if len(tensor.shape) == 3 and tensor.shape[-1] == 1:  # (128, 10, 1) => (128, 10).

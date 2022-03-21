@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-03-19 16:19:53
+LastEditTime: 2022-03-21 15:01:47
 FilePath: /smp/detect.py
 Description: 
 
@@ -131,10 +131,10 @@ def face_north(NFA,total_list):
 if __name__=='__main__':
     det=Detector(modelpath_prefix='model/C2L2K13T4B2U8',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
-                        'dataset/TMbase/data_2111.csv',
-                        'dataset/TMbase/data_2112.csv',
-                        'dataset/TMbase/data_2201.csv',
-                        'dataset/TMbase/data_2202.csv',],
+                              'dataset/TMbase/data_2111.csv',
+                              'dataset/TMbase/data_2112.csv',
+                              'dataset/TMbase/data_2201.csv',
+                              'dataset/TMbase/data_2202.csv',],
                  device=torch.device('cpu'),
                  tbwriter='compare')
 
