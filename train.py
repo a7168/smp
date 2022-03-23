@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-03-21 14:37:09
+LastEditTime: 2022-03-23 13:34:09
 FilePath: /smp/train.py
 Description: 
 
@@ -190,8 +190,8 @@ class ARGS():
         parser.add_argument('-ds','--dataset',type=str,default='IHEPC')
         # self.args=parser.parse_known_args()[0]
         parser.add_argument('-dp','--datapath',type=self.adddatasetprefix(parser),nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
-        parser.add_argument('-dr','--date_range',type=lambda s:None if s=='' else pd.Timestamp(s),nargs=2,default=None)
-        parser.add_argument('-dc','--data_clean_threshold',type=lambda s:None if s=='' else self.data_clean_thresholdtodict(s),default=',100')
+        parser.add_argument('-dr','--date_range',type=self.nullstr_to_None(pd.Timestamp),nargs=2,default=None)
+        parser.add_argument('-dc','--data_clean_threshold',type=self.nullstr_to_None(self.data_clean_thresholdtodict),default=',100')
         # parser.add_argument('-nt','--nanThreshold',type=int,default=100)
         parser.add_argument('-nm','--normalized_method',type=str,default='z',choices=['z','max',''])
         parser.add_argument('-uc','--use_cols',type=str,default='g')
@@ -202,17 +202,17 @@ class ARGS():
         parser.add_argument('-st','--stack_types',type=self.getstacktype,default='gg')
         parser.add_argument('-nbps','--nb_blocks_per_stack',type=int,default=2)
         parser.add_argument('-bbl','--backbone_layers',type=int,default=2)
-        parser.add_argument('-bbk','--backbone_kernel_size',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
+        parser.add_argument('-bbk','--backbone_kernel_size',type=self.nullstr_to_None(int),default=None) #for cnn block
         parser.add_argument('-fl','--forecast_length',type=int,default=24)
         parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
         parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='4,4')
         parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
         parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
-        parser.add_argument('-pm','--predictModule',type=lambda s:None if s=='' else s,default=None) #for cnn block
-        parser.add_argument('-pml','--predict_module_layer',type=lambda s:None if s=='' else self.tonumlist(s),default=None) #for cnn block
-        parser.add_argument('-spm','--share_predict_module',type=lambda s:None if s=='' else bool(s),default=None) #for cnn block
-        parser.add_argument('-pmhz','--predict_module_hidden_size',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
-        parser.add_argument('-pmnl','--predict_module_num_layers',type=lambda s:None if s=='' else int(s),default=None) #for cnn block
+        parser.add_argument('-pm','--predictModule',type=self.nullstr_to_None(str),default=None) #for cnn block
+        parser.add_argument('-pml','--predict_module_layer',type=self.tonumlist,default=None) #for cnn block
+        parser.add_argument('-spm','--share_predict_module',type=self.nullstr_to_None(bool),default=None) #for cnn block
+        parser.add_argument('-pmhz','--predict_module_hidden_size',type=self.nullstr_to_None(int),default=None) #for cnn block
+        parser.add_argument('-pmnl','--predict_module_num_layers',type=self.nullstr_to_None(int),default=None) #for cnn block
 
         #training setting
         parser.add_argument('-n','--name',type=str,default=None)
@@ -244,35 +244,43 @@ class ARGS():
     def __getattr__(self,key):
         return getattr(self.args,key)
 
+    def nullstr_to_None(func):
+        def check(s):
+            return None if s==''else func(s)
+        return check
+
     @staticmethod
     def data_clean_thresholdtodict(s):
         return {i:float(j) for i,j in zip(['value','length'],s.split(',')) if j!=''}
 
-    @staticmethod
-    def addtbprefix(parser):
+    @classmethod
+    def addtbprefix(cls,parser):
         args=parser.parse_known_args()[0]
+        @cls.nullstr_to_None
         def func(s):
-            return f'runs/{s}/{args.name}' if s!='' else None
+            return f'runs/{s}/{args.name}'
         return func
 
-    @staticmethod
-    def addmdlprefix(parser):
+    @classmethod
+    def addmdlprefix(cls,parser):
         args=parser.parse_known_args()[0]
+        @cls.nullstr_to_None
         def func(s):
             prefix=f'model/{s}'
             if not os.path.isdir(prefix):
                 os.makedirs(prefix)
-            return f'{prefix}/{args.name}.mdl' if s!='' else None
+            return f'{prefix}/{args.name}.mdl'
         return func
 
-    @staticmethod
-    def addlogprefix(parser):
+    @classmethod
+    def addlogprefix(cls,parser):
         args=parser.parse_known_args()[0]
+        @cls.nullstr_to_None
         def func(s):
             prefix=f'log/{s}'
             if not os.path.isdir(prefix):
                 os.makedirs(prefix)
-            return f'{prefix}/{args.name}.csv' if s!='' else None
+            return f'{prefix}/{args.name}.csv'
         return func
 
 
@@ -290,6 +298,7 @@ class ARGS():
         return [stacktype.get(i) for i in s]
     
     @staticmethod
+    @nullstr_to_None
     def tonumlist(s):
         return [int(i) for i in s.split(',')]
     
@@ -359,6 +368,8 @@ class ARGS():
                 'record':self.record,
                 'save_log_path':self.save_log_path,
                 'save_model_path':self.save_model_path}
+
+    nullstr_to_None=staticmethod(nullstr_to_None)
     
 def main(datasetprep,datapath,date_range,data_clean_threshold,normalized_method,
          use_cols,timeunit,align,forecast_length,backcast_length,
