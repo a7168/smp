@@ -1,3 +1,13 @@
+'''
+Author: philipperemy
+Date: 2021-12-29 13:26:27
+LastEditors: Egoist
+LastEditTime: 2022-03-23 09:02:10
+FilePath: /smp/nbeatmodel.py
+Description: 
+    Modify from pytorch implementation of nbeat by philipperemy
+    source code at https://github.com/philipperemy/n-beats/blob/master/nbeats_pytorch/model.py
+'''
 import pickle
 import random
 from time import time
@@ -210,7 +220,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                 'trainable':lambda x:x.requires_grad}.get(cond)
         return sum(p.numel() for p in self.parameters() if cond_f(p))
 
-    def save(self,path,other_info={}):#TODO set name and save property state_dict type for isinstance  sethyperpara
+    def save(self,path,other_info={}):
         torch.save({'type':'nbeats',
                     'infodict':self.get_infodict(),
                     'weight':self.state_dict()}|other_info,path)

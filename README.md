@@ -4,7 +4,7 @@ NBEATS for load data
 
 Directory structure
 ------
-![directory structure](https://user-images.githubusercontent.com/56117848/154844224-db988106-d88b-45f9-b049-8681a55f7fb6.png)
+![directory structure](https://user-images.githubusercontent.com/56117848/159694068-b48137c8-961e-4eae-b2f9-849a7694cf3c.png)
 
 
 Environment
@@ -23,8 +23,13 @@ Environment
 
 Run on terminal
 ------
+for training task:
 ```
-python nbeat.py [<options>]
+python train.py [<options>]
+```
+for detecting task:
+```
+python detect.py
 ```
 
 References
