@@ -19,7 +19,8 @@ Environment
 | pandas         |          1.4.1 |
 | matplotlib     |          3.5.1 |
 | tensorboard    |          2.8.0 |
-
+| requests       |         2.27.1 |
+| xlrd           |          2.0.1 |
 
 Run on terminal
 ------
