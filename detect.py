@@ -2,11 +2,12 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-03-21 15:01:47
+LastEditTime: 2022-04-10 10:26:16
 FilePath: /smp/detect.py
 Description: 
 
 '''
+
 import numpy as np
 import pandas as pd
 import torch
@@ -14,12 +15,13 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from nbeatmodel import NBeatsNet
 from readTMbase import TMbaseset
+import funcs
 
 class Detector():
     def __init__(self,modelpath_prefix,datasetpath,device=None,tbwriter=None):
         self.modelpath_prefix=modelpath_prefix
         self.net=None
-        self.set=TMbaseset(datasetpath,'g')
+        self.set=TMbaseset(datasetpath)
         self.device=device
         self.tbwriter=None if tbwriter is None else SummaryWriter(f'runs/detect/{tbwriter}')
         ...
@@ -33,14 +35,16 @@ class Detector():
         data_rangestart=[date+pd.Timedelta(-7+i,unit='d') for i in range(8)]
         raw_inputs=[self.set.getitembydate(i,length=7,nstart=nstart,nend=nend)[data_NFA].to_numpy(dtype=np.float32) for i in data_rangestart]
         x=torch.from_numpy(np.stack(raw_inputs))
-        o=torch.cat(self.net.inference( x,trmode=False,gd=False),-1) # concat backcast and forecast
+        inference=self.net.inference(x,future=None,step=1,trmode=False,gd=False)
+        o=torch.cat([inference['backcast'],inference['forecast']],-1) # concat backcast and forecast
         results=[o[i,-24*(i+1):-24*i if i!=0 else None].cpu() for i in range(len(o))]
         all=np.stack([target]+results)
         result_mean=np.stack(results[1:]).mean(axis=0)
 
-        mae=torch.nn.L1Loss(reduction='none')
-        results_err=mae(torch.from_numpy(all),torch.from_numpy(target).broadcast_to(all.shape)).mean(dim=-1)
-        result_mean_err=mae(torch.from_numpy(result_mean),torch.from_numpy(target))
+        # mae=torch.nn.L1Loss(reduction='none')
+        mape=funcs.MAPE(reduction='none')
+        results_err=mape(torch.from_numpy(all),torch.from_numpy(target).broadcast_to(all.shape)).mean(dim=-1)
+        result_mean_err=mape(torch.from_numpy(result_mean),torch.from_numpy(target))
         result_mean_stat={'mean':result_mean_err.mean(),'std':result_mean_err.std()}
         
 
@@ -75,8 +79,9 @@ class Detector():
         target=np.concatenate(everyday_target)
         reconstruct=np.concatenate(everyday_reconstruct)
 
-        mae=torch.nn.L1Loss(reduction='none')
-        err=mae(torch.from_numpy(reconstruct),torch.from_numpy(target))
+        # mae=torch.nn.L1Loss(reduction='none')
+        mape=funcs.MAPE(reduction='none')
+        err=mape(torch.from_numpy(reconstruct),torch.from_numpy(target))
         stat={'mean':err.mean(),'std':err.std()}
 
         
@@ -129,70 +134,22 @@ def face_north(NFA,total_list):
     return NFA in north
 
 if __name__=='__main__':
-    det=Detector(modelpath_prefix='model/C2L2K13T4B2U8',
+    det=Detector(modelpath_prefix='model/B3_L4_K3_U8_T4_C8',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
                               'dataset/TMbase/data_2111.csv',
                               'dataset/TMbase/data_2112.csv',
                               'dataset/TMbase/data_2201.csv',
-                              'dataset/TMbase/data_2202.csv',],
+                              'dataset/TMbase/data_2202.csv',
+                              'dataset/TMbase/data_2203.csv',],
                  device=torch.device('cpu'),
-                 tbwriter='compare')
+                 tbwriter='mape')
 
-
-    userlist=['N16-F04-A01','N16-F04-A09',
-              'N16-F09-A01','N16-F09-A09',
-              'N16-F14-A01','N16-F14-A09',
-              'N16-F19-A01','N16-F19-A09',
-              'N16-F21-A01','N16-F21-A09',
-                #---------------------------
-              'N17-F04-A00','N17-F04-A13',
-              'N17-F09-A00','N17-F09-A13',
-              'N17-F14-A00',
-                            
-              'N17-F21-A00',
-                #---------------------------
-              'N19-F04-A01','N19-F04-A09',
-                            'N19-F09-A09',
-              'N19-F14-A01','N19-F14-A09',
-                            
-                            'N19-F21-A09',]
-
-    floor=(4,9,14,19,21)
-    north=[f'N16-F{i:02}-A09' for i in floor]+[f'N17-F{i:02}-A13' for i in floor]+[f'N19-F{i:02}-A09' for i in floor]
-    north=[i for i in north if i in userlist]
-
-    userdict={
-        # 'N16-F04-A01':['N16-F04-A01','N16-F04-A09','N17-F04-A00','N19-F04-A01'],
-        # 'N16-F04-A09':['N16-F04-A01','N16-F04-A09','N17-F04-A13','N19-F04-A09'],
-
-        # 'N17-F04-A00':['N17-F04-A00','N17-F04-A13','N16-F04-A01','N19-F04-A01'],
-        # 'N17-F04-A13':['N17-F04-A00','N17-F04-A13','N16-F04-A09','N19-F04-A09'],
-
-        # 'N19-F04-A01':['N19-F04-A01','N19-F04-A09','N16-F04-A01','N17-F04-A00'],
-        # 'N19-F04-A09':['N19-F04-A01','N19-F04-A09','N16-F04-A09','N17-F04-A13'],
-    }
-
-    for i in userlist:
-        is_north=i in north
-        floor=i[5:7]
-        building=i[1:3]
-        if building=='16':
-            if is_north:
-                compare_list=[f'N16-F{floor}-A01',f'N16-F{floor}-A09',f'N17-F{floor}-A13',f'N19-F{floor}-A09']
-            else:
-                compare_list=[f'N16-F{floor}-A01',f'N16-F{floor}-A09',f'N17-F{floor}-A00',f'N19-F{floor}-A01']
-        elif building=='17':
-            if is_north:
-                compare_list=[f'N17-F{floor}-A00',f'N17-F{floor}-A13',f'N16-F{floor}-A09',f'N19-F{floor}-A09']
-            else:
-                compare_list=[f'N17-F{floor}-A00',f'N17-F{floor}-A13',f'N16-F{floor}-A01',f'N19-F{floor}-A01']
-        elif building=='19':
-            if is_north:
-                compare_list=[f'N19-F{floor}-A01',f'N19-F{floor}-A09',f'N16-F{floor}-A09',f'N17-F{floor}-A13']
-            else:
-                compare_list=[f'N19-F{floor}-A01',f'N19-F{floor}-A09',f'N16-F{floor}-A01',f'N17-F{floor}-A00']
-        compare_list=[i for i in compare_list if i in userlist]
-        userdict[i]=compare_list
+    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+    userdict={}
+    for data in userlist:
+        floor=data.split('-')[1]
+        compare_list=[i for i in userlist if floor in i] #compare same floor
+        userdict[data]=compare_list
 
     for data,models in userdict.items():
         for m in models:
@@ -200,6 +157,8 @@ if __name__=='__main__':
             det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)
             det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{9}',nend=None)
             det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{12}',nend=None)
+            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{1}',nend=None)
+            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{2}',nend=None)
 
     # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2020}-{12}',nend=None)
     # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2021}-{12}',nend=None)
@@ -212,7 +171,7 @@ if __name__=='__main__':
 
         # f1=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F04-A00',date=(2022,1,i))
         # f2=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F09-A00',date=(2022,1,i))
-        # f3=det.detect(model_NFA='N16-F04-A03',data_NFA='N16-F04-A00',date=(2022,1,i))
+        # f3=det.detect(model_NFA='N16-F04-A03',data_NFA='N16-F04-A00',date=(2022,1,i)) 21/1/4~21/3/5
 
     
     ...
