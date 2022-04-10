@@ -2,12 +2,12 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-03-21 15:08:10
+LastEditTime: 2022-04-10 10:33:58
 FilePath: /smp/readTMbase.py
 Description: 
 
 '''
-
+# %%
 import json
 import math
 import pandas as pd
@@ -47,6 +47,28 @@ class TMbaseset(Dataset):
         with open(path, 'w', encoding='utf-8') as f:
             json.dump([i for i in df.columns if i !='time'], f, ensure_ascii=False, indent=4)
 
+    @staticmethod
+    def load_use_list(path):
+        with open(path, 'r') as f:
+            uselist=json.load(f)
+        return uselist
+
+    @staticmethod
+    def filter_use_list(uselist,floors):
+        match=[]
+        for nfa in uselist:
+            n,f,a=nfa.split('-')
+            if int(f[1:]) not in floors:
+                continue
+            if n=='N16' and (a=='A01' or a=='A09'):
+                match.append(nfa)
+            elif n=='N17' and (a=='A00' or a=='A13'):
+                match.append(nfa)
+            elif n=='N19' and (a=='A01' or a=='A09'):
+                match.append(nfa)
+        return match
+
+
     def parse(self,date_range,threshold,normalize,use_cols,seqLength):
         #select used dataset range
         df=self.select_timerange(self.df,date_range[0],date_range[1]) if date_range is not None else self.df
@@ -60,7 +82,8 @@ class TMbaseset(Dataset):
             data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
 
         self.data={'max':self.normalize01,
-                    'z':self.normalizeZ}.get(normalize)(data)
+                   'z':self.normalizeZ,
+                   '':self.normalize_none}.get(normalize)(data)
 
         self.seqLength=seqLength
         self.indices=list(range(0,len(self.data)-seqLength+1))
@@ -75,8 +98,8 @@ class TMbaseset(Dataset):
 
     def getitembydate(self,date,dtype='neach',nstart=None,nend=None,length=1):
         # data={'raw':self.df,'neach':self.df_normalize_each,'nall':self.df_normalize_all}
-        data=((self.df-self.select_timerange(self.df,nstart,nend).mean(numeric_only=True))/self.select_timerange(self.df,nstart,nend).std(numeric_only=True)).fillna(self.df)
-
+        # data=((self.df-self.select_timerange(self.df,nstart,nend).mean(numeric_only=True))/self.select_timerange(self.df,nstart,nend).std(numeric_only=True)).fillna(self.df)
+        data=self.df
 
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(*date)
         startidx=(date-self.start).days*24
@@ -93,6 +116,10 @@ class TMbaseset(Dataset):
 
     def __len__(self):
         return len(self.indices)
+
+    @staticmethod
+    def normalize_none(data):
+        return data
 
     @staticmethod
     def normalizeZ(data):#z-normalization for dataframe
@@ -113,9 +140,13 @@ class TMbaseset(Dataset):
         validate=self.indices[-bound:]
         return TMbasesubset(self,train),TMbasesubset(self,validate)
 
-    # @staticmethod
-    # def getnormalize_df(df,start,end):
-    # 	return ((df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
+    @staticmethod
+    def plot_user(df,user):
+        fig, ax = plt.subplots(figsize=(30,10))
+        ax.plot(df[user].to_numpy())
+        plt.title(user)
+        plt.show()
+    	
 
     @staticmethod
     def data_cleansing(input,value_threshold,conti_day,gragh):
@@ -252,7 +283,9 @@ def _localtest():
                                 'dataset/TMbase/data_2111.csv',
                                 'dataset/TMbase/data_2112.csv',
                                 'dataset/TMbase/data_2201.csv',
-                                'dataset/TMbase/data_2202.csv',])
+                                'dataset/TMbase/data_2202.csv',
+                                'dataset/TMbase/data_2203.csv',
+                                ])
     rawdata.parse(seqLength=7*24+24,
                   normalize='z',)
     rawdata.setbackfore(7*24)
