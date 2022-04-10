@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-03-23 09:02:10
+LastEditTime: 2022-04-10 13:45:38
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -187,23 +187,34 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             return b
         return f
 
-    def forward(self, rawbackcast,reStacks=False):
-        backcast = squeeze_last_dim(rawbackcast)
+    def forward(self, history,future=None,step=1):#TODO CPC infoLoss
+        '''future is use in contrastive learning for obtain theta pair'''
+        backcast = squeeze_last_dim(history)
         forecast = torch.zeros(size=(backcast.size()[0], self.forecast_length,))  # maybe batch size here.
-        stacks=[]
+        theta_pred=[]
+        if future is not None:
+            theta_cnn=[]
+        else:
+            theta_cnn=None
         for stack_id in range(len(self.stacks)):
-            sf=torch.zeros_like(forecast)
             for block_id in range(len(self.stacks[stack_id])):
-                b, f = self.stacks[stack_id][block_id](backcast)
+                result=self.stacks[stack_id][block_id](backcast,y=future,step=step)
+                    
+                b, f = result['backcast'],result['forecast']
                 backcast = backcast.to(self.device) - b
                 forecast = forecast.to(self.device) + f
-                sf=sf.to(self.device) + f
-            stacks.append(sf)
-        if reStacks:
-            return squeeze_last_dim(rawbackcast)-backcast, forecast, stacks
-        return squeeze_last_dim(rawbackcast)-backcast, forecast
+                theta_pred.append(result['theta_pred'])
+                if future is not None:
+                    future=future.to(self.device)-result['future']
+                    theta_cnn.append(result['theta_future'])
 
-    def inference(self,data,trmode,gd):
+        # return squeeze_last_dim(history)-backcast, forecast
+        return {'backcast':squeeze_last_dim(history)-backcast,
+                'forecast':forecast,
+                'theta_pred':torch.cat(theta_pred,1).flatten(start_dim=1),
+                'theta_cnn':torch.cat(theta_cnn,1).flatten(start_dim=1) if theta_cnn is not None else None,}
+
+    def inference(self,data,future,step,trmode,gd):
         data=data.to(self.device)
         if trmode is True:
             self.train()
@@ -211,7 +222,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             self.eval()
 
         if gd is True:
-            return self(data)
+            return self(data,future,step)
         with torch.no_grad():
             return self(data)
 
@@ -372,112 +383,125 @@ class GenericBlock(Block):
 
         return backcast, forecast
 
-class Predictbypadding(nn.Module):
-    def __init__(self,insize,outsize):
-        super().__init__()
-        self.insize=insize
-        self.outsize=outsize
+# class Predictbyfc(nn.Module):
+#     def __init__(self,context_size,output_size,predict_module_layer=[],**other_argd):
+#         super().__init__()
+#         self.context_size=context_size
+#         self.output_size=output_size
+#         self.flat=nn.Flatten()
+#         self.nodes=[context_size]+predict_module_layer+[output_size.numel()]
+#         self.fc=nn.ModuleList([nn.Sequential(nn.Linear(i,j),
+#                                              nn.ReLU(),) for i,j in zip(self.nodes,self.nodes[1:])])
 
-    def forward(self,x):
-        return torch.zeros(len(x),*self.outsize,device=x.device)
-    
-    def __str__(self):
-        return f'         | -- {type(self).__name__}(layers=None) at @{id(self)}'
+#     def forward(self,x):
+#         x=self.flat(x)
+#         for layer in self.fc:
+#             x=layer(x)
+#         return x.reshape(len(x),*self.output_size)
 
-class Predictbyfc(nn.Module):
-    def __init__(self,insize,outsize,predict_module_layer=[]):
-        super().__init__()
-        self.insize=insize
-        self.outsize=outsize
-        self.flat=nn.Flatten()
-        self.nodes=[insize.numel()]+predict_module_layer+[outsize.numel()]
-        self.fc=nn.ModuleList([nn.Sequential(
-            nn.Linear(i,j),
-            nn.ReLU(),
-            ) for i,j in zip(self.nodes,self.nodes[1:])]
-        )
-
-    def forward(self,x):
-        x=self.flat(x)
-        for layer in self.fc:
-            x=layer(x)
-        return x.reshape(len(x),*self.outsize)
-
-    def __str__(self):
-        return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
+#     def __str__(self):
+#         return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
 
 class PredictbyLSTM(nn.Module):
-    def __init__(self,insize,outsize,predict_module_hidden_size=None,predict_module_num_layers=1):
+    def __init__(self,context_size,output_size,predict_module_num_layers=1):
         super().__init__()
-        self.insize=insize
-        self.outsize=outsize
-        self.lstm=(nn.LSTM(insize[0],outsize[0],num_layers=predict_module_num_layers) 
-                   if predict_module_hidden_size is None
-                   else nn.LSTM(insize[0],predict_module_hidden_size,num_layers=predict_module_num_layers,proj_size=outsize[0]))
+        self.hidden_size =context_size
+        self.output_size=output_size
+        self.lstm=nn.LSTM(output_size[0],context_size,num_layers=predict_module_num_layers,proj_size=output_size[0])
         ...
 
-    def forward(self,x):
-        x=x.permute(2,0,1) #origin(batch,channel,seq)
+    # def forward(self,x):
+    #     x=x.permute(2,0,1) #origin(batch,channel,seq)
+    #     self.lstm.flatten_parameters()
+    #     o,(h,c)=self.lstm(x)
+    #     return o[-1:].permute(1,2,0)
+
+    def forward(self,c,step=1): #origin c.shape=(batch,channel,seq)
         self.lstm.flatten_parameters()
-        o,(h,c)=self.lstm(x)
-        return o[-1:].permute(1,2,0)
+        batch_size=c.shape[0]
+        c=c.permute(2,0,1)
+        
+        x=torch.zeros(1,batch_size,self.output_size[0],device=c.device) #shape=(seq,batch,channel)
+        h=torch.zeros_like(x)
+        o=[]
+        for i in range(step):
+            x,(h,c)=self.lstm(x,(h,c))
+            o.append(x)
+        o=torch.cat(o,0)
+        return o.permute(1,2,0)
 
     def __str__(self):
         return f'         | -- {type(self).__name__}(layers={self.lstm}) at @{id(self)}'
 
-#TODO predictbyseq2seq
 class GenericCNN(nn.Module):
-    PREDICT_METHOD={'pad':Predictbypadding,
-                    'fc':Predictbyfc,
+    PREDICT_METHOD={#'pad':Predictbypadding,
+                    # 'fc':Predictbyfc,
                     'lstm':PredictbyLSTM}
 
     def __init__(self,block_id,units,thetas_dim,device,backcast_length=10,forecast_length=5,backbone_layers=4,
-                 share_thetas=False,nb_harmonics=None,predictModule=None,share_predict_module=False,backbone_kernel_size=7,**predict_module_setting):
+                 share_thetas=False,nb_harmonics=None,
+                 downsampling_factor=24,
+                 context_size=None,predictModule=None,share_predict_module=False,backbone_kernel_size=7,**predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
         self.backcast_length = backcast_length
         self.forecast_length = forecast_length
         self.share_thetas = share_thetas
+        self.downsampling_factor=downsampling_factor
         self.device = device
-
-        if predictModule is not None:
-            if block_id==0 or share_predict_module is False:
-                self.predictModule=self.PREDICT_METHOD.get(predictModule)(torch.Size([thetas_dim,7]),
-                                                torch.Size([thetas_dim,1]),**predict_module_setting)
-                self.setsharedpredictmodule(self.predictModule)
-            else:
-                self.predictModule=self.sharedpredictModule
-        else:
-            self.predictModule=None
 
         cnnstack=[]
         for i in range(backbone_layers):
             cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
         self.cnnstack=nn.Sequential(*cnnstack)
-		
         self.theta = nn.Sequential(
-			nn.Conv1d(units,thetas_dim,24,stride=24,bias=False),
-            nn.ReLU(),
-			)
-        self.basis = nn.ConvTranspose1d(thetas_dim,1,24,stride=24) if predictModule is not None else nn.Sequential(
-            nn.ConvTranspose1d(thetas_dim,thetas_dim,24,stride=24),
-            nn.ReLU(),
-            nn.ConvTranspose1d(thetas_dim,1,25),
-        )
+                        nn.Conv1d(units,thetas_dim,self.downsampling_factor,stride=self.downsampling_factor,bias=False),
+                        nn.ReLU(),)
+        self.context_layer=nn.GRU(thetas_dim,context_size) if context_size is not None else None
+
+        self.predictModule=self.build_predictModule(block_id=block_id,
+                                                    predictModule=predictModule,
+                                                    context_size=context_size,
+                                                    share_predict_module=share_predict_module,
+                                                    predict_module_setting=predict_module_setting)
+
+        self.basis = nn.ConvTranspose1d(thetas_dim,1,self.downsampling_factor,stride=self.downsampling_factor)
         ...
 
-    def forward(self, x):
+    def forward(self, x,y=None,step=1):
+        '''always need context_layer and predictModule'''
 # 		x = squeeze_last_dim(x)
+        if y is not None:
+            future_step=y.shape[1]//self.downsampling_factor
+            y=y.to(self.device)
+            x=torch.cat((x,y),-1)
         x=x.unsqueeze(1)
         x=x.to(self.device)
         x= self.cnnstack(x)
-        x=self.theta(x)
-
-        if self.predictModule is not None:
-            x=torch.cat([x,self.predictModule(x)],-1)
-        x=self.basis(x)
-        return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
+        z=self.theta(x)
+        if y is not None:
+            z_back=z[...,:-future_step]
+            z_future=z[...,-future_step:]
+        else:
+            z_back=z
+            z_future=None
+        # z_back=z[...,:-future_step]if y is not None else z
+        self.context_layer.flatten_parameters()
+        c=self.context_layer(z_back.permute(2,0,1))[0][-1:].permute(1,2,0)# keep batch,channel,seq(layers)
+        z_pred=self.predictModule(c,step=step)
+        # z=torch.cat([z,z_pred],-1)
+        # x=self.basis(z)
+        # return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
+        return {'backcast':self.basis(z_back).squeeze(1),
+                'forecast':self.basis(z_pred).squeeze(1),
+                'future':self.basis(z_future).squeeze(1) if z_future is not None else None,
+                'theta_pred':z_pred,
+                'theta_future':z_future}
+        return {'backcast':x[...,:-self.forecast_length].squeeze(1),
+                'forecast':x[...,-self.forecast_length:].squeeze(1),
+                'theta_pred':z_pred,
+                'future_pred':self.basis(z_pred).squeeze(1)}
 
     def __str__(self):
         block_type = type(self).__name__
@@ -486,6 +510,19 @@ class GenericCNN(nn.Module):
                f'share_thetas={self.share_thetas}) at @{id(self)}\n' \
                f'{self.predictModule if self.predictModule is not None else "         | -- No predict module"}'
     
+    def build_predictModule(self,block_id,predictModule,context_size,share_predict_module,predict_module_setting):
+        if predictModule is not None:
+            if block_id==0 or share_predict_module is False:
+                predict_size={'context_size':context_size,
+                              'output_size':torch.Size([self.thetas_dim,self.forecast_length//self.downsampling_factor])}
+                pm=self.PREDICT_METHOD.get(predictModule)(**predict_size,**predict_module_setting)
+                self.setsharedpredictmodule(pm)
+                return pm
+            else:
+                return self.sharedpredictModule
+        else:
+            return None
+
     @classmethod
     def setsharedpredictmodule(cls,module):
         cls.sharedpredictModule=module
@@ -494,8 +531,11 @@ class GenericCNN(nn.Module):
 if __name__=='__main__':
     gtest=GenericBlock(0,8,4,torch.device("cpu"),168,24)
     ctest=GenericCNN(0,8,4,torch.device("cpu"),168,24)
+    # ctest2=GenericCNN(0,8,4,torch.device("cpu"),168,24,context_size=8,predictModule='fc',predict_module_layer=[6])
+    ctest3=GenericCNN(0,8,4,torch.device("cpu"),168,24,context_size=8,predictModule='lstm')
 
-    ptest=Predictbyfc(torch.Size([4,7]),torch.Size([4,1]),predict_module_layer=[])
+    # ptest=Predictbyfc(torch.Size([4,7]),torch.Size([4,1]),predict_module_layer=[])
     k=gtest(torch.rand(5,168))
-    k=ctest(torch.rand(5,168))
+    k=ctest3(torch.rand(5,168))
+    k=ctest3(torch.rand(5,168),y=torch.rand(5,24))
     ...
