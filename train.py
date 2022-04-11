@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-04-10 13:20:34
+LastEditTime: 2022-04-11 09:16:58
 FilePath: /smp/train.py
 Description: 
 
@@ -11,6 +11,7 @@ Description:
 import argparse
 from readIHEPC import IHEPC
 from readTMbase import TMbase,TMbaseset
+from functools import partial
 import numpy as np
 import pandas as pd
 import torch
@@ -350,12 +351,22 @@ class ARGS():
 
     @staticmethod
     def lossfunc(s):
-        lossdict={'mae':nn.L1Loss,
+        loss_type,*loss_arg=s.split(':')
+        typedict={'mae':nn.L1Loss,
                   'mape':funcs.MAPE,
                   'pmape':funcs.pMAPE,
                   'mse':nn.MSELoss,
                   'huber':nn.HuberLoss,}
-        return lossdict.get(s)
+        argdict={'reduction':str,
+                 'eps':float,
+                 'percentage':bool,
+                 'tau':float}
+        if loss_arg:
+            args=loss_arg[0].split(',')
+            argd={j:argdict.get(j)(k) for i in args for j,k in [i.split('=')]}
+            return partial(typedict.get(loss_type),**argd)
+        else:
+            return typedict.get(loss_type)
 
     @staticmethod
     def optalgo(s):
