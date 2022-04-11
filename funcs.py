@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-31 08:30:25
 LastEditors: Egoist
-LastEditTime: 2022-04-10 13:04:49
+LastEditTime: 2022-04-11 08:57:30
 FilePath: /smp/funcs.py
 Description: 
 
@@ -45,7 +45,7 @@ class pMAPE(nn.Module):
     def __init__(self,reduction='mean',tau=0.6,eps=1e-8,percentage=False):
         super().__init__()
         self.reduction=reduction
-        self.tau=0.6
+        self.tau=tau
         self.eps=eps
         self.percentage=percentage
         self.mae=nn.L1Loss(reduction='none')
