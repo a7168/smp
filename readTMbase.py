@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-04-10 10:33:58
+LastEditTime: 2022-04-11 13:48:05
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -28,14 +28,16 @@ class TMbaseset(Dataset):
         self.df=df
         # self.total_df=df
         # useless_list=self.data_cleansing(df,0.01,120*5,0)
+        # useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
         # df=df.drop(useless_list, axis=1)
         
         self.start=pd.to_datetime(self.df['time'])[0]
-        self.df_normalize_each=((self.df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
-        column_without_time=[c for c in df.columns if c !='time']
-        df_numpy=df[column_without_time].to_numpy()
-        self.df_normalize_all=(df[column_without_time]-df_numpy.mean())/df_numpy.std()
-        self.df_normalize_all.insert(0,'time',df['time'])
+        # self.df_normalize_each=((self.df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
+        # column_without_time=[c for c in df.columns if c !='time']
+        # df_numpy=df[column_without_time].to_numpy()
+        # self.df_normalize_all=(df[column_without_time]-df_numpy.mean())/df_numpy.std()
+        # self.df_normalize_all.insert(0,'time',df['time'])
+        
         # if use_cols=='g':
         # 	self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
         # else:
@@ -69,13 +71,15 @@ class TMbaseset(Dataset):
         return match
 
 
-    def parse(self,date_range,threshold,normalize,use_cols,seqLength):
+    def parse(self,date_range,threshold,normalize,use_cols,seq_length):
         #select used dataset range
         df=self.select_timerange(self.df,date_range[0],date_range[1]) if date_range is not None else self.df
 
+        useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
+        self.use_list=[c for c in df.columns if c !='time' and c not in useless_list]
         if use_cols=='g':
             if threshold is not None:
-                useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
+                # useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
                 df=df.drop(useless_list, axis=1)
             data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
         else:
@@ -85,15 +89,15 @@ class TMbaseset(Dataset):
                    'z':self.normalizeZ,
                    '':self.normalize_none}.get(normalize)(data)
 
-        self.seqLength=seqLength
-        self.indices=list(range(0,len(self.data)-seqLength+1))
+        self.seq_length=seq_length
+        self.indices=list(range(0,len(self.data)-seq_length+1))
 
     def setbackfore(self,backend,forestart=None):
         self.sep=(backend,forestart if forestart is not None else backend)
 
     def __getitem__(self, index):
         head=self.indices[index]
-        seq=self.data[head:head+self.seqLength]
+        seq=self.data[head:head+self.seq_length]
         return seq[:self.sep[0]],seq[self.sep[1]:]
 
     def getitembydate(self,date,dtype='neach',nstart=None,nend=None,length=1):
@@ -146,7 +150,21 @@ class TMbaseset(Dataset):
         ax.plot(df[user].to_numpy())
         plt.title(user)
         plt.show()
-    	
+        return fig
+    
+    def get_negative_dataset(self,postive_name,used_ratio):
+        total_length=len(self.df)
+        bound=int(np.floor(total_length*used_ratio))
+        user_dataset_list=[]
+        for name in self.use_list:
+            if name!=postive_name:
+                dataset=TMUserDataSet(name=name,
+                                      data=np.expand_dims(self.df[name].iloc[:-bound].to_numpy(dtype=np.float32),axis=-1),
+                                      seq_length=self.seq_length,
+                                      sep=self.sep)
+                user_dataset_list.append(dataset)
+        
+        return torch.utils.data.ConcatDataset(user_dataset_list)
 
     @staticmethod
     def data_cleansing(input,value_threshold,conti_day,gragh):
@@ -244,20 +262,37 @@ class TMbasesubset(Data.Subset):
     def setrng(cls,seed):
         cls.rng=np.random.default_rng(seed=seed)
 
+class TMUserDataSet(torch.utils.data.Dataset):
+    def __init__(self,name,data,seq_length,sep):
+        self.name=name
+        self.data=data
+        self.seq_length=seq_length
+        self.indices=list(range(0,len(self.data)-seq_length+1))
+        self.sep=sep
+        ...
+
+    def __getitem__(self,index):
+        head=self.indices[index]
+        seq=self.data[head:head+self.seq_length]
+        return seq[:self.sep[0]],seq[self.sep[1]:]
+
+    def __len__(self):
+        return len(self.indices)
+
 class TMbase():
     def __init__(self,datapath,
                  date_range,data_clean_threshold,normalized_method,use_cols,
                  timeunit,align,
                  forecast_length,backcast_length,
                  globalrng,samplesize,
-                 train_batch,valid_batch):
+                 train_batch,train_negative_batch,valid_batch):
 
         rawdata=TMbaseset(datapath)
         rawdata.parse(date_range=date_range,
                       threshold=data_clean_threshold,
                       normalize=normalized_method,
                       use_cols=use_cols,
-                      seqLength=timeunit*(forecast_length+backcast_length),)
+                      seq_length=timeunit*(forecast_length+backcast_length),)
         rawdata.setbackfore(backcast_length)
 
         trainset,validateset=rawdata.splitbyratio(0.1)
@@ -273,6 +308,15 @@ class TMbase():
         self.trainloader=trainloader
         self.valloader=valloader
 
+        if train_negative_batch is not None:
+            self.negative_set=rawdata.get_negative_dataset(postive_name=use_cols,
+                                                           used_ratio=0.1)
+            self.negative_loader=torch.utils.data.DataLoader(self.negative_set,train_negative_batch,shuffle=True)
+        else:
+            self.negative_set=None
+            self.negative_loader=None
+        ...
+
     @staticmethod
     def generate_seed(rng,maxseed):
         return rng.integers(maxseed)
@@ -286,7 +330,7 @@ def _localtest():
                                 'dataset/TMbase/data_2202.csv',
                                 'dataset/TMbase/data_2203.csv',
                                 ])
-    rawdata.parse(seqLength=7*24+24,
+    rawdata.parse(seq_length=7*24+24,
                   normalize='z',)
     rawdata.setbackfore(7*24)
     trainset,validateset=rawdata.splitbyratio(0.1)

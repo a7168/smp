@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-04-10 13:45:38
+LastEditTime: 2022-04-11 14:33:14
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -190,6 +190,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
     def forward(self, history,future=None,step=1):#TODO CPC infoLoss
         '''future is use in contrastive learning for obtain theta pair'''
         backcast = squeeze_last_dim(history)
+        future=squeeze_last_dim(future) if future is not None else None
         forecast = torch.zeros(size=(backcast.size()[0], self.forecast_length,))  # maybe batch size here.
         theta_pred=[]
         if future is not None:
