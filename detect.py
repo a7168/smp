@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-04-10 10:26:16
+LastEditTime: 2022-04-13 01:23:26
 FilePath: /smp/detect.py
 Description: 
 
@@ -41,10 +41,11 @@ class Detector():
         all=np.stack([target]+results)
         result_mean=np.stack(results[1:]).mean(axis=0)
 
-        # mae=torch.nn.L1Loss(reduction='none')
+        mae=torch.nn.L1Loss(reduction='none')
         mape=funcs.MAPE(reduction='none')
-        results_err=mape(torch.from_numpy(all),torch.from_numpy(target).broadcast_to(all.shape)).mean(dim=-1)
-        result_mean_err=mape(torch.from_numpy(result_mean),torch.from_numpy(target))
+        metric=mape
+        results_err=metric(torch.from_numpy(all),torch.from_numpy(target).broadcast_to(all.shape)).mean(dim=-1)
+        result_mean_err=metric(torch.from_numpy(result_mean),torch.from_numpy(target))
         result_mean_stat={'mean':result_mean_err.mean(),'std':result_mean_err.std()}
         
 
@@ -79,16 +80,17 @@ class Detector():
         target=np.concatenate(everyday_target)
         reconstruct=np.concatenate(everyday_reconstruct)
 
-        # mae=torch.nn.L1Loss(reduction='none')
+        mae=torch.nn.L1Loss(reduction='none')
         mape=funcs.MAPE(reduction='none')
-        err=mape(torch.from_numpy(reconstruct),torch.from_numpy(target))
+        metric=mape
+        err=metric(torch.from_numpy(reconstruct),torch.from_numpy(target))
         stat={'mean':err.mean(),'std':err.std()}
 
         
         info={'model':self.net.name,'data':data_NFA,'month':f'{month_first.year}-{month_first.month}'}
         title='\n'.join([f'{i}: {j}' for i,j in info.items()])
         labels=['target',f'reconstruct (mean:{stat["mean"]:.4f} | std:{stat["std"]:.4f})']
-        fig=self.plot(np.stack([target,reconstruct]),labels=labels,title=title,xticklabel_start=month_first)
+        fig=self.plot(np.stack([target,reconstruct]),labels=labels,title=title,xticklabel_start=month_first,err=err)
         if self.tbwriter is not None:
             self.tbwriter.add_figure(f'data: {data_NFA} on {info["month"]}{plot_idf}/model: {info["model"]}',fig,(month_first-self.set.start).days)
             self.tbwriter.flush()
@@ -99,14 +101,30 @@ class Detector():
 
 
     @staticmethod
-    def plot(output,labels,title,xticklabel_start=None):
+    def plot(output,labels,title,xticklabel_start=None,err=None):
+        data_size=output.shape[-1]
         fig, ax1 = plt.subplots()
         fig.set_figheight(6)
         fig.set_figwidth(8)
         fig.suptitle(title)
         for o,l in zip(output,labels):
             ax1.plot(range(len(o)),o,label=l)
+        ax1.set_ylabel('kwh')
         ax1.legend()
+        if err is not None:
+            ax2=ax1.twinx()
+            ax2.plot(range(len(err)),err,alpha=0.5,label='MAE',color='r')
+            yt=ax2.get_yticks()
+            # yt_range=yt[-1]-yt[0]
+            # yt_new=[yt[-1]*(1-0.5*i) for i in range(7)][::-1]
+            step=4
+            yt_new=[-2*yt[-1]]+[yt[-1]*i/step for i in range(step+1)]
+            yt_new_label=[f'{i:.1f}' if i>=0 else '' for i in yt_new]
+            ax2.set_yticks(yt_new,labels=yt_new_label)
+            ax2.set_ylabel('err', color='r')  
+            ax2.tick_params(axis='y', labelcolor='r')
+            ax2.legend()
+
         if xticklabel_start is not None:
             ticks=ax1.get_xticks()
             tick_labels=[]
@@ -134,7 +152,7 @@ def face_north(NFA,total_list):
     return NFA in north
 
 if __name__=='__main__':
-    det=Detector(modelpath_prefix='model/B3_L4_K3_U8_T4_C8',
+    det=Detector(modelpath_prefix='model/B3_L4_K3_U8_T4_C8_pmape_2',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
                               'dataset/TMbase/data_2111.csv',
                               'dataset/TMbase/data_2112.csv',
@@ -142,7 +160,7 @@ if __name__=='__main__':
                               'dataset/TMbase/data_2202.csv',
                               'dataset/TMbase/data_2203.csv',],
                  device=torch.device('cpu'),
-                 tbwriter='mape')
+                 tbwriter='pmape_exp2')
 
     userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
     userdict={}
