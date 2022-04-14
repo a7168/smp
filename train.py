@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-04-11 15:44:40
+LastEditTime: 2022-04-14 13:56:22
 FilePath: /smp/train.py
 Description: 
 
@@ -44,7 +44,7 @@ class Trainer():
         self.writer=SummaryWriter(tb_log_dir)
         self.lossratio=lossratio
         self.logdf=pd.DataFrame(columns=['epoch','batch','iteration',
-                                         'train_back','train_fore','train_all',
+                                         'train_back','train_fore','train_all','info_NCE',
                                          'valiadate_back','valiadate_fore','valiadate_all'])
 
         print(f'params: {self.count_params()}')
@@ -104,6 +104,7 @@ class Trainer():
         print(f'{stepstr} ][ {trainstr} ][ {valstr}')
         infodict={'epoch':[ep],'batch':[batch],'iteration':[itrn],
                 'train_back':[trainloss[0].item()],'train_fore':[trainloss[1].item()],'train_all':[trainloss[2].item()],
+                'info_NCE':[np.nan if len(trainloss)<4 else trainloss[3].item()],
                 'valiadate_back':[verr[0]],'valiadate_fore':[verr[1]],'valiadate_all':[verr[2]]}
         isbestresult=self.add_log(infodict,selectby='valiadate_fore')
         if isbestresult and save_model_path is not None:
@@ -112,6 +113,9 @@ class Trainer():
         self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
         self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
         self.writer.add_scalar('train/fore',trainloss[1].item(),itrn)
+        if len(trainloss)>=4:
+            self.writer.add_scalar('train/infoNCE',trainloss[3].item(),itrn)
+
         self.writer.add_scalar('validate/all',verr[2],itrn)
         self.writer.add_scalar('validate/back',verr[0],itrn)
         self.writer.add_scalar('validate/fore',verr[1],itrn)
