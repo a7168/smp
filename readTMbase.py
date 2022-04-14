@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-04-11 13:48:05
+LastEditTime: 2022-04-14 14:23:05
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -71,17 +71,19 @@ class TMbaseset(Dataset):
         return match
 
 
-    def parse(self,date_range,threshold,normalize,use_cols,seq_length):
+    def parse(self,date_range,threshold,cleaned_user_list,normalize,use_cols,seq_length):
         #select used dataset range
         df=self.select_timerange(self.df,date_range[0],date_range[1]) if date_range is not None else self.df
 
-        useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
-        self.use_list=[c for c in df.columns if c !='time' and c not in useless_list]
+        if cleaned_user_list is not None:
+            self.use_list=self.load_use_list(cleaned_user_list)
+        else:
+            useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
+            self.use_list=[c for c in df.columns if c !='time' and c not in useless_list]
         if use_cols=='g':
             if threshold is not None:
-                # useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
-                df=df.drop(useless_list, axis=1)
-            data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
+                df=df[self.use_list]
+            data=df.to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
         else:
             data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
 
@@ -281,7 +283,7 @@ class TMUserDataSet(torch.utils.data.Dataset):
 
 class TMbase():
     def __init__(self,datapath,
-                 date_range,data_clean_threshold,normalized_method,use_cols,
+                 date_range,data_clean_threshold,cleaned_user_list,normalized_method,use_cols,
                  timeunit,align,
                  forecast_length,backcast_length,
                  globalrng,samplesize,
@@ -290,6 +292,7 @@ class TMbase():
         rawdata=TMbaseset(datapath)
         rawdata.parse(date_range=date_range,
                       threshold=data_clean_threshold,
+                      cleaned_user_list=cleaned_user_list,
                       normalize=normalized_method,
                       use_cols=use_cols,
                       seq_length=timeunit*(forecast_length+backcast_length),)

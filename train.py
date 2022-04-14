@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-04-14 13:56:22
+LastEditTime: 2022-04-14 14:44:13
 FilePath: /smp/train.py
 Description: 
 
@@ -250,7 +250,7 @@ class ARGS():
         parser.add_argument('-dp','--datapath',type=self.adddatasetprefix(parser,argv),nargs='+',default=['dataset/IHEPC/household_power_consumption.txt'])
         parser.add_argument('-dr','--date_range',type=self.nullstr_to_None(pd.Timestamp),nargs=2,default=None)
         parser.add_argument('-dc','--data_clean_threshold',type=self.nullstr_to_None(self.data_clean_thresholdtodict),default=',100')
-        # parser.add_argument('-nt','--nanThreshold',type=int,default=100)
+        parser.add_argument('-cul','--cleaned_user_list',type=self.nullstr_to_None(str),default=None)
         parser.add_argument('-nm','--normalized_method',type=str,default='z',choices=['z','max',''])
         parser.add_argument('-uc','--use_cols',type=str,default='g')
         parser.add_argument('-tu','--timeunit',type=int,default=60)
@@ -409,6 +409,7 @@ class ARGS():
                 'datapath':self.datapath,
                 'date_range':self.date_range,
                 'data_clean_threshold':self.data_clean_threshold,
+                'cleaned_user_list':self.cleaned_user_list,
                 'normalized_method':self.normalized_method,
                 'use_cols':self.use_cols,
                 'timeunit':self.timeunit,
@@ -447,7 +448,7 @@ class ARGS():
 
     nullstr_to_None=staticmethod(nullstr_to_None)
     
-def main(datasetprep,datapath,date_range,data_clean_threshold,normalized_method,
+def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,normalized_method,
          use_cols,timeunit,align,forecast_length,backcast_length,
          globalrng,samplesize,train_batch,train_negative_batch,valid_batch,
          
@@ -461,8 +462,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,normalized_method,
          epochs,record,save_log_path,save_model_path):
     dataset=datasetprep(datapath=datapath,
                         date_range=date_range,
-                        #  nanThreshold=args.nanThreshold,
                         data_clean_threshold=data_clean_threshold,
+                        cleaned_user_list=cleaned_user_list,
                         normalized_method=normalized_method,
                         use_cols=use_cols,
                         timeunit=timeunit,
@@ -534,23 +535,22 @@ def make_argv():
              "--context_size","8",
 
              "--name",i,
-             "--tb_log_dir","B3_L4_K3_U8_T4_C8_mape_info",
-             "--save_model_path","B3_L4_K3_U8_T4_C8_mape_info",
-             "--save_log_path","B3_L4_K3_U8_T4_C8_mape_info",
+             "--tb_log_dir","B3_L4_K3_U8_T4_C8_pmape_info",
+             "--save_model_path","B3_L4_K3_U8_T4_C8_pmape_info",
+             "--save_log_path","B3_L4_K3_U8_T4_C8_pmape_info",
              "--epochs", "100",
              "--cudadevice", f"{device}",
              "--rngseed", "6666",
-             "--trainlosstype","mape",
-             "--lossratio","0,0,1,0.5",
+             "--trainlosstype","pmape:eps=1e-4,tau=0.6",
+             "--lossratio","0,0,1,1",
              "--evaluatemetric","mape",
              "--train_negative_batch","512",
              ] for i in cond1[device::2]]
 
 if __name__=='__main__':
-    
     settings=[None]
 
-    for s in make_argv():
+    for s in settings:
         main_cmdargv(s)
         ...
     ...
