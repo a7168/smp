@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-04-14 14:23:05
+LastEditTime: 2022-04-28 09:41:50
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -102,16 +102,11 @@ class TMbaseset(Dataset):
         seq=self.data[head:head+self.seq_length]
         return seq[:self.sep[0]],seq[self.sep[1]:]
 
-    def getitembydate(self,date,dtype='neach',nstart=None,nend=None,length=1):
-        # data={'raw':self.df,'neach':self.df_normalize_each,'nall':self.df_normalize_all}
-        # data=((self.df-self.select_timerange(self.df,nstart,nend).mean(numeric_only=True))/self.select_timerange(self.df,nstart,nend).std(numeric_only=True)).fillna(self.df)
+    def getitembydate(self,date,length=1):
         data=self.df
-
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(*date)
         startidx=(date-self.start).days*24
-
         return data.iloc[startidx:startidx+24*length]
-        ...
 
     @staticmethod
     def select_timerange(df,start_date,end_date):
