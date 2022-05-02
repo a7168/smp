@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-04-14 14:44:13
+LastEditTime: 2022-05-02 09:01:17
 FilePath: /smp/train.py
 Description: 
 
@@ -32,7 +32,10 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-    def __init__(self,model,trloader,negloader,valloader,lossf,evmetric,opt,device,tb_log_dir,lossratio):
+    def __init__(self,name,expname,model,trloader,negloader,valloader,lossf,evmetric,opt,device,lossratio):
+        self.name=name
+        self.expname=expname
+        self.init_record()
         self.model=model.to(device)
         self.trloader=trloader
         self.negloader=negloader
@@ -41,7 +44,7 @@ class Trainer():
         self.evmetric=evmetric
         self.opt=opt
         self.device=device
-        self.writer=SummaryWriter(tb_log_dir)
+        # self.writer=SummaryWriter(tb_log_dir)
         self.lossratio=lossratio
         self.logdf=pd.DataFrame(columns=['epoch','batch','iteration',
                                          'train_back','train_fore','train_all','info_NCE',
@@ -49,7 +52,24 @@ class Trainer():
 
         print(f'params: {self.count_params()}')
         
-    def train(self,epochs,record,save_log_path,save_model_path):
+    def init_record(self):
+        if self.expname is None:
+            self.tb_log_dir=None
+            self.save_log_path=None
+            self.save_model_path=None
+            self.writer=None
+        else:
+            prefix=f'exp/{self.expname}'
+            if not os.path.isdir(prefix):
+                os.makedirs(f'{prefix}/run')
+                os.makedirs(f'{prefix}/log')
+                os.makedirs(f'{prefix}/model')
+            tb_log_dir=f'exp/{self.expname}/run/{self.name}'
+            self.save_log_path=f'exp/{self.expname}/log/{self.name}.csv'
+            self.save_model_path=f'exp/{self.expname}/model/{self.name}.mdl'
+            self.writer=SummaryWriter(tb_log_dir)
+        
+    def train(self,epochs,record,):
         iteration=-1
         for ep in range(epochs):
             if self.negloader is not None:
@@ -61,9 +81,10 @@ class Trainer():
             for batch,(x,y) in enumerate(self.trloader):
                 iteration+=1
                 x,y=[i.squeeze(-1) for i in (x,y)]
-                result=self.inference(x,y,step=1,trmode=True,gd=True)
+                result=self.model.inference(x,y,step=1,trmode=True,gd=True)
+                # r2=self.model.inference(x,y,step=3,trmode=True,gd=True)
+                # r3=self.model.inference(x,y,step=3,trmode=False,gd=False)
                 back,fore=result['backcast'],result['forecast']
-
                 loss=self.evaluate(x,y,back,fore,metric=self.lossf)
 
                 if neg_iter is not None:
@@ -74,12 +95,12 @@ class Trainer():
 
                 
                 if record[0]=='i' and iteration%(int(record[1:]))==0:
-                    self.validate(ep,batch,iteration,loss,save_model_path)
+                    self.validate(ep,batch,iteration,loss)
                     
             if record[0]=='e':
-                self.validate(ep,batch,iteration,loss,save_model_path)
-        if save_log_path is not None:
-            self.logdf.to_csv(save_log_path)
+                self.validate(ep,batch,iteration,loss)
+        if self.save_log_path is not None:
+            self.logdf.to_csv(self.save_log_path)
         ...
 
     def update(self,loss):
@@ -87,7 +108,7 @@ class Trainer():
         loss.backward()
         self.opt.step()
 
-    def validate(self,ep,batch,itrn,trainloss,save_model_path):
+    def validate(self,ep,batch,itrn,trainloss):
         err_batch=[]
         for x,y in self.valloader:
             result=self.inference(x,future=None,step=1,trmode=False,gd=False)
@@ -101,42 +122,46 @@ class Trainer():
         trainstr=f'train back={trainloss[0].item():f} | train fore={trainloss[1].item():f} | train all={trainloss[2].item():f} | infoNCE={infoNCE_str}'
         
         valstr=f'valiadate back={verr[0]:f} | valiadate fore={verr[1]:f} | valiadate all={verr[2]:f}'
-        print(f'{stepstr} ][ {trainstr} ][ {valstr}')
+        # print(f'{stepstr} ][ {trainstr} ][ {valstr}')
+        print(f'{stepstr}',f'    {trainstr}',f'    {valstr}',sep='\n')
         infodict={'epoch':[ep],'batch':[batch],'iteration':[itrn],
                 'train_back':[trainloss[0].item()],'train_fore':[trainloss[1].item()],'train_all':[trainloss[2].item()],
                 'info_NCE':[np.nan if len(trainloss)<4 else trainloss[3].item()],
                 'valiadate_back':[verr[0]],'valiadate_fore':[verr[1]],'valiadate_all':[verr[2]]}
         isbestresult=self.add_log(infodict,selectby='valiadate_fore')
-        if isbestresult and save_model_path is not None:
-            self.model.save(save_model_path,other_info={'iteration':itrn})
-        
-        self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
-        self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
-        self.writer.add_scalar('train/fore',trainloss[1].item(),itrn)
-        if len(trainloss)>=4:
-            self.writer.add_scalar('train/infoNCE',trainloss[3].item(),itrn)
+        if isbestresult and self.save_model_path is not None:
+            self.model.save(self.save_model_path,other_info={'iteration':itrn})
 
-        self.writer.add_scalar('validate/all',verr[2],itrn)
-        self.writer.add_scalar('validate/back',verr[0],itrn)
-        self.writer.add_scalar('validate/fore',verr[1],itrn)
+        if self.writer is not None:
+            self.record_tensorboard()
         
-        trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-        trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
-        trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
-        for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
-            self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
-            self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
-            self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
+        # self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
+        # self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
+        # self.writer.add_scalar('train/fore',trainloss[1].item(),itrn)
+        # if len(trainloss)>=4:
+        #     self.writer.add_scalar('train/infoNCE',trainloss[3].item(),itrn)
+
+        # self.writer.add_scalar('validate/all',verr[2],itrn)
+        # self.writer.add_scalar('validate/back',verr[0],itrn)
+        # self.writer.add_scalar('validate/fore',verr[1],itrn)
+        
+        # trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
+        # trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
+        # trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
+        # for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
+        #     self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
+        #     self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
+        #     self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
             
-        valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-        valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
-        valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
-        for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
-            self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
-            self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
-            self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
+        # valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
+        # valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
+        # valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
+        # for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
+        #     self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
+        #     self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
+        #     self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
         
-        self.writer.flush()
+        # self.writer.flush()
 
     def inference(self,data,future,step,trmode,gd):
         data=data.to(self.device)
@@ -180,7 +205,7 @@ class Trainer():
         return metric(output,ground_truth.to(device))
 
     @staticmethod
-    def evaluate_infoNCE(positive,negative,metric): #TODO check this
+    def evaluate_infoNCE(positive,negative,metric):
         theta_cnn=positive['theta_cnn']
         count_pos=theta_cnn.shape[0]
         theta_pred=torch.cat([positive['theta_pred'],negative['theta_pred']],0)
@@ -190,6 +215,36 @@ class Trainer():
         simularity=simularity.gather(dim=1,index=torch.cat([index_pos,index_neg],1).to(simularity.device))
         return metric(simularity,torch.zeros(theta_cnn.shape[0],device=simularity.device,dtype=torch.long))
     
+    def record_tensorboard(self,):
+        get_current=lambda column:self.logdf[column].iloc[-1]
+        itrn=get_current('iteration')
+        self.writer.add_scalar('train/all',get_current('train_all'),itrn)
+        self.writer.add_scalar('train/back',get_current('train_back'),itrn)
+        self.writer.add_scalar('train/fore',get_current('train_fore'),itrn)
+        if not np.isnan(infonce:=get_current('info_NCE')):
+            self.writer.add_scalar('train/infoNCE',infonce,itrn)
+        self.writer.add_scalar('validate/all',get_current('valiadate_all'),itrn)
+        self.writer.add_scalar('validate/back',get_current('valiadate_back'),itrn)
+        self.writer.add_scalar('validate/fore',get_current('valiadate_fore'),itrn)
+        
+        trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
+        trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
+        trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
+        for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
+            self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
+            self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
+            self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
+            
+        valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
+        valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
+        valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
+        for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
+            self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
+            self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
+            self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
+        
+        self.writer.flush()
+
     def plotall(self,x,y,b,f):
         xl,yl=len(x),len(y)
         
@@ -243,7 +298,7 @@ class Trainer():
 
     
 class ARGS():
-    def __init__(self,argv=None): #TODO parse arg by tb_log_dir?
+    def __init__(self,argv=None):
         parser=argparse.ArgumentParser()
         #dataset setting
         parser.add_argument('-ds','--dataset',type=str,default='IHEPC')
@@ -254,7 +309,7 @@ class ARGS():
         parser.add_argument('-nm','--normalized_method',type=str,default='z',choices=['z','max',''])
         parser.add_argument('-uc','--use_cols',type=str,default='g')
         parser.add_argument('-tu','--timeunit',type=int,default=60)
-        parser.add_argument('-a','--align',type=int,default=60)
+        parser.add_argument('-a','--align',type=int,default=24)
         
         #model setting
         parser.add_argument('-st','--stack_types',type=self.getstacktype,default='gg')
@@ -263,6 +318,7 @@ class ARGS():
         parser.add_argument('-bbk','--backbone_kernel_size',type=self.nullstr_to_None(int),default=None) #for cnn block
         parser.add_argument('-fl','--forecast_length',type=int,default=24)
         parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
+        parser.add_argument('-dsf','--downsampling_factor',type=int,default=24)
         parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='4,4')
         parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
         parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
@@ -275,12 +331,13 @@ class ARGS():
 
         #training setting
         parser.add_argument('-n','--name',type=str,default=None)
+        parser.add_argument('-expn','--expname',type=self.nullstr_to_None(str),default=None)
         parser.add_argument('-d','--cudadevice',type=int,default=0)
         parser.add_argument('-rs','--rngseed',type=int,default=None)
         parser.add_argument('-e','--epochs',type=int,default=35)
-        parser.add_argument('-tbd','--tb_log_dir',type=self.addtbprefix(parser,argv),default=None)
-        parser.add_argument('-smp','--save_model_path',type=self.addmdlprefix(parser,argv),default=None)
-        parser.add_argument('-slp','--save_log_path',type=self.addlogprefix(parser,argv),default=None)
+        # parser.add_argument('-tbd','--tb_log_dir',type=self.addtbprefix(parser,argv),default=None)
+        # parser.add_argument('-smp','--save_model_path',type=self.addmdlprefix(parser,argv),default=None)
+        # parser.add_argument('-slp','--save_log_path',type=self.addlogprefix(parser,argv),default=None)
         parser.add_argument('-r','--record',type=str,default='e') #i100
         parser.add_argument('-tb','--train_batch',type=int,default=512)
         parser.add_argument('-tnb','--train_negative_batch',type=self.nullstr_to_None(int),default=None)
@@ -416,12 +473,14 @@ class ARGS():
                 'align':self.align,
                 'forecast_length':self.forecast_length,
                 'backcast_length':self.backcast_length,
+                'downsampling_factor':self.downsampling_factor,
                 'globalrng':self.globalrng,
                 'samplesize':self.samplesize,
                 'train_batch':self.train_batch,
                 'train_negative_batch':self.train_negative_batch,
                 'valid_batch':self.valid_batch,
                 'name':self.name,
+                'expname':self.expname,
                 'device':self.device,
                 'stack_types':self.stack_types,
                 'nb_blocks_per_stack':self.nb_blocks_per_stack,
@@ -439,27 +498,28 @@ class ARGS():
                 'trainlosstype':self.trainlosstype,
                 'evaluatemetric':self.evaluatemetric,
                 'optimizer':self.optimizer,
-                'tb_log_dir':self.tb_log_dir,
+                # 'tb_log_dir':self.tb_log_dir,
                 'lossratio':self.lossratio,
                 'epochs':self.epochs,
                 'record':self.record,
-                'save_log_path':self.save_log_path,
-                'save_model_path':self.save_model_path}
+                # 'save_log_path':self.save_log_path,
+                # 'save_model_path':self.save_model_path
+                }
 
     nullstr_to_None=staticmethod(nullstr_to_None)
     
 def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,normalized_method,
-         use_cols,timeunit,align,forecast_length,backcast_length,
+         use_cols,timeunit,align,forecast_length,backcast_length,downsampling_factor,
          globalrng,samplesize,train_batch,train_negative_batch,valid_batch,
          
-         name,device,stack_types,nb_blocks_per_stack,thetas_dim,share_weights_in_stack,
+         name,expname,device,stack_types,nb_blocks_per_stack,thetas_dim,share_weights_in_stack,
          hidden_layer_units,backbone_layers,backbone_kernel_size,context_size,
          predictModule,# predict_module_layer,
          share_predict_module,# predict_module_hidden_size,
          predict_module_num_layers,
          
-         trainlosstype,evaluatemetric,optimizer,tb_log_dir,lossratio,
-         epochs,record,save_log_path,save_model_path):
+         trainlosstype,evaluatemetric,optimizer,lossratio,
+         epochs,record,):
     dataset=datasetprep(datapath=datapath,
                         date_range=date_range,
                         data_clean_threshold=data_clean_threshold,
@@ -481,6 +541,7 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                     nb_blocks_per_stack=nb_blocks_per_stack,
                     forecast_length=forecast_length,
                     backcast_length=backcast_length,
+                    downsampling_factor=downsampling_factor,
                     thetas_dim=thetas_dim,
                     share_weights_in_stack=share_weights_in_stack,
                     hidden_layer_units=hidden_layer_units,
@@ -492,7 +553,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                     share_predict_module=share_predict_module,
                     # predict_module_hidden_size=predict_module_hidden_size,
                     predict_module_num_layers=predict_module_num_layers)
-    exp=Trainer(model=net,
+    exp=Trainer(name=name,expname=expname,
+        model=net,
                 trloader=dataset.trainloader,
                 negloader=dataset.negative_loader,
                 valloader=dataset.valloader,
@@ -500,12 +562,13 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                 evmetric=evaluatemetric(),
                 opt=optimizer(net.parameters()),
                 device=device,
-                tb_log_dir=tb_log_dir,
+                # tb_log_dir=tb_log_dir,
                 lossratio=lossratio)
     exp.train(epochs=epochs,
               record=record,
-              save_log_path=save_log_path,
-              save_model_path=save_model_path)
+            #   save_log_path=save_log_path,
+            #   save_model_path=save_model_path
+              )
     ...
 
 def main_cmdargv(argv):
@@ -521,36 +584,39 @@ def make_argv():
                           "data_2201.csv","data_2202.csv","data_2203.csv",
              "--date_range", "","",
              "--data_clean_threshold", "0.01,600",
+             "--cleaned_user_list","dataset/TMbase/use_list3.json",
              "--timeunit","1",
+             "--align","24",
              "--use_cols",i,
              "--normalized_method","",
 
              "--stack_types", "c",
              "--nb_blocks_per_stack", "3",
-             "--backbone_layers", "4",
+             "--backbone_layers", "2",
              "--backbone_kernel_size", "3",
              "--hidden_layer_units", "8",
-             "--thetas_dim", "4",
+             "--thetas_dim", "3",
              "--predictModule","lstm",
-             "--context_size","8",
+             "--context_size","3",
 
              "--name",i,
-             "--tb_log_dir","B3_L4_K3_U8_T4_C8_pmape_info",
-             "--save_model_path","B3_L4_K3_U8_T4_C8_pmape_info",
-             "--save_log_path","B3_L4_K3_U8_T4_C8_pmape_info",
+             "--expname","B3_L2_K3_U8_T3_C3_align24",
+            #  "--tb_log_dir","B3_L4_K3_U8_T4_C8_mape_nobias",
+            #  "--save_model_path","B3_L4_K3_U8_T4_C8_mape_nobias",
+            #  "--save_log_path","B3_L4_K3_U8_T4_C8_mape_nobias",
              "--epochs", "100",
              "--cudadevice", f"{device}",
              "--rngseed", "6666",
-             "--trainlosstype","pmape:eps=1e-4,tau=0.6",
-             "--lossratio","0,0,1,1",
+             "--trainlosstype","mape",
+             "--lossratio","0,0,1,0",
              "--evaluatemetric","mape",
-             "--train_negative_batch","512",
+             "--train_negative_batch","",
              ] for i in cond1[device::2]]
 
 if __name__=='__main__':
     settings=[None]
 
-    for s in settings:
+    for s in make_argv():
         main_cmdargv(s)
         ...
     ...
