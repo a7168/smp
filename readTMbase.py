@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-04-28 09:41:50
+LastEditTime: 2022-05-02 08:56:03
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -71,7 +71,7 @@ class TMbaseset(Dataset):
         return match
 
 
-    def parse(self,date_range,threshold,cleaned_user_list,normalize,use_cols,seq_length):
+    def parse(self,date_range,align,threshold,cleaned_user_list,normalize,use_cols,seq_length):
         #select used dataset range
         df=self.select_timerange(self.df,date_range[0],date_range[1]) if date_range is not None else self.df
 
@@ -92,7 +92,8 @@ class TMbaseset(Dataset):
                    '':self.normalize_none}.get(normalize)(data)
 
         self.seq_length=seq_length
-        self.indices=list(range(0,len(self.data)-seq_length+1))
+        self.indices=list(range(0,len(self.data)-seq_length+1,align))
+        self.align=align
 
     def setbackfore(self,backend,forestart=None):
         self.sep=(backend,forestart if forestart is not None else backend)
@@ -137,8 +138,10 @@ class TMbaseset(Dataset):
     def splitbyratio(self,ratio): #use last block to validate
         total=len(self)
         bound=int(np.floor(total*ratio))
-        train=self.indices[:-bound]
-        validate=self.indices[-bound:]
+        train=range(0,total-bound)
+        validate=range(total-bound,total)
+        # train=self.indices[:-bound]
+        # validate=self.indices[-bound:]
         return TMbasesubset(self,train),TMbasesubset(self,validate)
 
     @staticmethod
@@ -158,7 +161,8 @@ class TMbaseset(Dataset):
                 dataset=TMUserDataSet(name=name,
                                       data=np.expand_dims(self.df[name].iloc[:-bound].to_numpy(dtype=np.float32),axis=-1),
                                       seq_length=self.seq_length,
-                                      sep=self.sep)
+                                      sep=self.sep,
+                                      align=self.align)
                 user_dataset_list.append(dataset)
         
         return torch.utils.data.ConcatDataset(user_dataset_list)
@@ -260,11 +264,11 @@ class TMbasesubset(Data.Subset):
         cls.rng=np.random.default_rng(seed=seed)
 
 class TMUserDataSet(torch.utils.data.Dataset):
-    def __init__(self,name,data,seq_length,sep):
+    def __init__(self,name,data,seq_length,sep,align):
         self.name=name
         self.data=data
         self.seq_length=seq_length
-        self.indices=list(range(0,len(self.data)-seq_length+1))
+        self.indices=list(range(0,len(self.data)-seq_length+1,align))
         self.sep=sep
         ...
 
@@ -286,6 +290,7 @@ class TMbase():
 
         rawdata=TMbaseset(datapath)
         rawdata.parse(date_range=date_range,
+                      align=align,
                       threshold=data_clean_threshold,
                       cleaned_user_list=cleaned_user_list,
                       normalize=normalized_method,
@@ -328,8 +333,13 @@ def _localtest():
                                 'dataset/TMbase/data_2202.csv',
                                 'dataset/TMbase/data_2203.csv',
                                 ])
-    rawdata.parse(seq_length=7*24+24,
-                  normalize='z',)
+    rawdata.parse(date_range=None,
+                  align=1,
+                  threshold={'value':0.01,'length':600},
+                  cleaned_user_list=None,
+                  normalize='',
+                  use_cols='N16-F04-A01',
+                  seq_length=1*(168+24),)
     rawdata.setbackfore(7*24)
     trainset,validateset=rawdata.splitbyratio(0.1)
     ...
