@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-04-11 14:33:14
+LastEditTime: 2022-05-02 08:01:32
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -19,6 +19,7 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch.nn.functional import mse_loss, l1_loss, binary_cross_entropy, cross_entropy
 from torch.optim import Optimizer
+import torch.nn.utils.parametrize as parametrize
 
 
 class NBeatsNet(nn.Module):#TODO loss computation belong to model
@@ -34,6 +35,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                  nb_blocks_per_stack=3,
                  forecast_length=5,
                  backcast_length=10,
+                 downsampling_factor=24,
                  thetas_dim=(4, 8),
                  share_weights_in_stack=False,
                  hidden_layer_units=256,
@@ -45,6 +47,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         self.argd={i:j for i,j in argd.items() if j is not None}
         self.forecast_length = forecast_length
         self.backcast_length = backcast_length
+        self.downsampling_factor=downsampling_factor
         self.hidden_layer_units = hidden_layer_units
         self.nb_blocks_per_stack = nb_blocks_per_stack
         self.share_weights_in_stack = share_weights_in_stack
@@ -68,18 +71,18 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         print(f'| --  Stack {stack_type.title()} (#{stack_id}) (share_weights_in_stack={self.share_weights_in_stack})')
         blocks = []
         for block_id in range(self.nb_blocks_per_stack):
-            block_init = NBeatsNet.select_block(stack_type)
+            block_init = self.select_block(stack_type)
+            blocksettings=self.select_init_argd(stack_type)
             if self.share_weights_in_stack and block_id != 0:
                 block = blocks[-1]  # pick up the last one when we share weights.
             else:
                 block = block_init(block_id=block_id,
+                                   device=self.device,
                                    units=self.hidden_layer_units,
                                    thetas_dim=self.thetas_dim[stack_id],
-                                   device=self.device,
-                                   backcast_length=self.backcast_length,
-                                   forecast_length=self.forecast_length,
                                    backbone_layers=self.backbone_layers,
-                                   nb_harmonics=self.nb_harmonics,
+                                #    nb_harmonics=self.nb_harmonics,
+                                   **blocksettings,
                                    **self.argd)
                 self.parameters.extend(block.parameters())
             print(f'     | -- {block}')
@@ -103,6 +106,14 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             return GenericCNN
         else:
             return GenericBlock
+
+    def select_init_argd(self,block_type):
+        if block_type == NBeatsNet.GENERIC_CNN:
+            return {'downsampling_factor':self.downsampling_factor}
+        else:
+            return {'backcast_length':self.backcast_length,
+                    'forecast_length':self.forecast_length,
+                    'nb_harmonics':self.nb_harmonics,}
 
     def compile(self, loss: str, optimizer: Union[str, Optimizer]):
         if loss == 'mae':
@@ -191,8 +202,11 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         '''future is use in contrastive learning for obtain theta pair'''
         backcast = squeeze_last_dim(history)
         future=squeeze_last_dim(future) if future is not None else None
-        forecast = torch.zeros(size=(backcast.size()[0], self.forecast_length,))  # maybe batch size here.
+        forecast = torch.zeros(size=(backcast.size()[0], step*self.downsampling_factor,))
+        # forecast = torch.zeros(size=(backcast.size()[0], self.forecast_length,))  # maybe batch size here.
+        # forecast=0
         theta_pred=[]
+        context=[]
         if future is not None:
             theta_cnn=[]
         else:
@@ -205,6 +219,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                 backcast = backcast.to(self.device) - b
                 forecast = forecast.to(self.device) + f
                 theta_pred.append(result['theta_pred'])
+                context.append(result['context'])
                 if future is not None:
                     future=future.to(self.device)-result['future']
                     theta_cnn.append(result['theta_future'])
@@ -212,6 +227,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         # return squeeze_last_dim(history)-backcast, forecast
         return {'backcast':squeeze_last_dim(history)-backcast,
                 'forecast':forecast,
+                'context':torch.cat(context,1).flatten(start_dim=1),
                 'theta_pred':torch.cat(theta_pred,1).flatten(start_dim=1),
                 'theta_cnn':torch.cat(theta_cnn,1).flatten(start_dim=1) if theta_cnn is not None else None,}
 
@@ -225,7 +241,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
         if gd is True:
             return self(data,future,step)
         with torch.no_grad():
-            return self(data)
+            return self(data,step=step)
 
     def count_params(self,cond='all'):
         cond_f={'all':lambda x:True,
@@ -260,6 +276,7 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
                 'nb_blocks_per_stack':self.nb_blocks_per_stack,
                 'forecast_length':self.forecast_length,
                 'backcast_length':self.backcast_length,
+                'downsampling_factor':self.downsampling_factor,
                 'thetas_dim':self.thetas_dim,
                 'share_weights_in_stack':self.share_weights_in_stack,
                 'hidden_layer_units':self.hidden_layer_units,
@@ -384,45 +401,21 @@ class GenericBlock(Block):
 
         return backcast, forecast
 
-# class Predictbyfc(nn.Module):
-#     def __init__(self,context_size,output_size,predict_module_layer=[],**other_argd):
-#         super().__init__()
-#         self.context_size=context_size
-#         self.output_size=output_size
-#         self.flat=nn.Flatten()
-#         self.nodes=[context_size]+predict_module_layer+[output_size.numel()]
-#         self.fc=nn.ModuleList([nn.Sequential(nn.Linear(i,j),
-#                                              nn.ReLU(),) for i,j in zip(self.nodes,self.nodes[1:])])
-
-#     def forward(self,x):
-#         x=self.flat(x)
-#         for layer in self.fc:
-#             x=layer(x)
-#         return x.reshape(len(x),*self.output_size)
-
-#     def __str__(self):
-#         return f'         | -- {type(self).__name__}(layers={self.nodes}) at @{id(self)}'
-
 class PredictbyLSTM(nn.Module):
-    def __init__(self,context_size,output_size,predict_module_num_layers=1):
+    def __init__(self,context_size,thetas_dim,predict_module_num_layers=1):
         super().__init__()
         self.hidden_size =context_size
-        self.output_size=output_size
-        self.lstm=nn.LSTM(output_size[0],context_size,num_layers=predict_module_num_layers,proj_size=output_size[0])
+        self.thetas_dim=thetas_dim
+        proj_size=0 if context_size==thetas_dim else thetas_dim
+        self.lstm=nn.LSTM(thetas_dim,context_size,num_layers=predict_module_num_layers,proj_size=proj_size)
         ...
-
-    # def forward(self,x):
-    #     x=x.permute(2,0,1) #origin(batch,channel,seq)
-    #     self.lstm.flatten_parameters()
-    #     o,(h,c)=self.lstm(x)
-    #     return o[-1:].permute(1,2,0)
 
     def forward(self,c,step=1): #origin c.shape=(batch,channel,seq)
         self.lstm.flatten_parameters()
         batch_size=c.shape[0]
         c=c.permute(2,0,1)
         
-        x=torch.zeros(1,batch_size,self.output_size[0],device=c.device) #shape=(seq,batch,channel)
+        x=torch.zeros(1,batch_size,self.thetas_dim,device=c.device) #shape=(seq,batch,channel)
         h=torch.zeros_like(x)
         o=[]
         for i in range(step):
@@ -434,30 +427,40 @@ class PredictbyLSTM(nn.Module):
     def __str__(self):
         return f'         | -- {type(self).__name__}(layers={self.lstm}) at @{id(self)}'
 
+class LogvarParametrize(nn.Module):
+    def forward(self, X):
+        return X.exp()
+
 class GenericCNN(nn.Module):
     PREDICT_METHOD={#'pad':Predictbypadding,
                     # 'fc':Predictbyfc,
                     'lstm':PredictbyLSTM}
 
-    def __init__(self,block_id,units,thetas_dim,device,backcast_length=10,forecast_length=5,backbone_layers=4,
-                 share_thetas=False,nb_harmonics=None,
+    def __init__(self,block_id,
+                 device,
+                 units,
+                 thetas_dim,
+                 backbone_layers=4,
+                 share_thetas=False,
                  downsampling_factor=24,
-                 context_size=None,predictModule=None,share_predict_module=False,backbone_kernel_size=7,**predict_module_setting):
+                 context_size=None,predictModule=None,share_predict_module=False,backbone_kernel_size=3,**predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
-        self.backcast_length = backcast_length
-        self.forecast_length = forecast_length
         self.share_thetas = share_thetas
         self.downsampling_factor=downsampling_factor
         self.device = device
 
-        cnnstack=[]
-        for i in range(backbone_layers):
-            cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
-        self.cnnstack=nn.Sequential(*cnnstack)
+        # cnnstack=[]
+        # for i in range(backbone_layers):
+        #     cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
+        # self.cnnstack=nn.Sequential(*cnnstack)
+        self.cnnstack=nn.Sequential(*[j for i in range(backbone_layers)
+                                            for j in (nn.Conv1d(units if i else 1, units,backbone_kernel_size),
+                                                      nn.ReLU())])
+        theta_kernel_size=downsampling_factor-backbone_layers*(backbone_kernel_size-1)
         self.theta = nn.Sequential(
-                        nn.Conv1d(units,thetas_dim,self.downsampling_factor,stride=self.downsampling_factor,bias=False),
+                        nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
                         nn.ReLU(),)
         self.context_layer=nn.GRU(thetas_dim,context_size) if context_size is not None else None
 
@@ -467,7 +470,8 @@ class GenericCNN(nn.Module):
                                                     share_predict_module=share_predict_module,
                                                     predict_module_setting=predict_module_setting)
 
-        self.basis = nn.ConvTranspose1d(thetas_dim,1,self.downsampling_factor,stride=self.downsampling_factor)
+        self.basis = nn.ConvTranspose1d(thetas_dim,1,self.downsampling_factor,stride=self.downsampling_factor,bias=False)
+        parametrize.register_parametrization(self.basis, "weight", LogvarParametrize())
         ...
 
     def forward(self, x,y=None,step=1):
@@ -497,6 +501,7 @@ class GenericCNN(nn.Module):
         return {'backcast':self.basis(z_back).squeeze(1),
                 'forecast':self.basis(z_pred).squeeze(1),
                 'future':self.basis(z_future).squeeze(1) if z_future is not None else None,
+                'context':c,
                 'theta_pred':z_pred,
                 'theta_future':z_future}
         return {'backcast':x[...,:-self.forecast_length].squeeze(1),
@@ -507,7 +512,7 @@ class GenericCNN(nn.Module):
     def __str__(self):
         block_type = type(self).__name__
         return f'{block_type}(units={self.units}, thetas_dim={self.thetas_dim}, ' \
-               f'backcast_length={self.backcast_length}, forecast_length={self.forecast_length}, ' \
+               f'downsampling_factor={self.downsampling_factor},' \
                f'share_thetas={self.share_thetas}) at @{id(self)}\n' \
                f'{self.predictModule if self.predictModule is not None else "         | -- No predict module"}'
     
@@ -515,7 +520,7 @@ class GenericCNN(nn.Module):
         if predictModule is not None:
             if block_id==0 or share_predict_module is False:
                 predict_size={'context_size':context_size,
-                              'output_size':torch.Size([self.thetas_dim,self.forecast_length//self.downsampling_factor])}
+                              'thetas_dim':self.thetas_dim,}
                 pm=self.PREDICT_METHOD.get(predictModule)(**predict_size,**predict_module_setting)
                 self.setsharedpredictmodule(pm)
                 return pm
