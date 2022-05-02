@@ -2,15 +2,16 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-04-13 01:23:26
+LastEditTime: 2022-05-02 13:00:49
 FilePath: /smp/detect.py
 Description: 
 
 '''
-
+# %%
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from nbeatmodel import NBeatsNet
@@ -26,52 +27,54 @@ class Detector():
         self.tbwriter=None if tbwriter is None else SummaryWriter(f'runs/detect/{tbwriter}')
         ...
 
-    def detect(self,model_NFA,data_NFA,date,nstart=None,nend=None,simple=True,plot_idf=''):
-        if self.net is None or self.net.name!=model_NFA:
+    def detect(self,model_NFA,data_NFA,date,days=1,metric='mape',):
+        if self.net is None or self.net.name!=model_NFA: #load model if need
             self.net=NBeatsNet.build(f'{self.modelpath_prefix}/{model_NFA}.mdl',new_name=model_NFA,new_device=self.device)
-        date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
-
-        target=self.set.getitembydate(date,length=1,nstart=nstart,nend=nend)[data_NFA].to_numpy(dtype=np.float32)
-        data_rangestart=[date+pd.Timedelta(-7+i,unit='d') for i in range(8)]
-        raw_inputs=[self.set.getitembydate(i,length=7,nstart=nstart,nend=nend)[data_NFA].to_numpy(dtype=np.float32) for i in data_rangestart]
-        x=torch.from_numpy(np.stack(raw_inputs))
-        inference=self.net.inference(x,future=None,step=1,trmode=False,gd=False)
-        o=torch.cat([inference['backcast'],inference['forecast']],-1) # concat backcast and forecast
-        results=[o[i,-24*(i+1):-24*i if i!=0 else None].cpu() for i in range(len(o))]
-        all=np.stack([target]+results)
-        result_mean=np.stack(results[1:]).mean(axis=0)
-
-        mae=torch.nn.L1Loss(reduction='none')
-        mape=funcs.MAPE(reduction='none')
-        metric=mape
-        results_err=metric(torch.from_numpy(all),torch.from_numpy(target).broadcast_to(all.shape)).mean(dim=-1)
-        result_mean_err=metric(torch.from_numpy(result_mean),torch.from_numpy(target))
-        result_mean_stat={'mean':result_mean_err.mean(),'std':result_mean_err.std()}
         
+        date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
+        target=self.set.getitembydate(date,length=days)[data_NFA].to_numpy(dtype=np.float32)
+        x=torch.from_numpy(target).unsqueeze(0)
+        inference=self.net.inference(x,future=None,step=1,trmode=False,gd=False)
 
-        info={'model':self.net.name,'data':data_NFA,'date':f'{date.year}-{date.month}-{date.day}'}
+        metric={'mae':torch.nn.L1Loss(reduction='none'),
+                'mape':funcs.MAPE(reduction='none')
+                }.get(metric)
+        results_err=metric(inference['backcast'],x)
+        return {'target':x,
+                'reconstruct':inference['backcast'],
+                'error':results_err,
+                'mean':results_err.mean(),
+                'std':results_err.std()}
+        
+    def detect_day(self,model_NFA,data_NFA,date,days=1,metric='mape'):
+        date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
+        end_date=date+pd.Timedelta(days-1,unit='d')
+        end_date_str='' if days==1 else f'to {end_date.year}-{end_date.month}-{end_date.day}'
+
+        result_stat=self.detect(model_NFA,data_NFA,date,days=days,metric=metric)
+        
+        info={'model':self.net.name,'data':data_NFA,'date':f'{date.year}-{date.month}-{date.day} {end_date_str}'}
         # title='\n'.join([f'model: {self.net.name}',f'data: {data_NFA}',f'date: {date.year}-{date.month}-{date.day}'])
         title='\n'.join([f'{i}: {j}' for i,j in info.items()])
-        if simple:
-            labels=['target',f'reconstruct (mean:{result_mean_stat["mean"]:.4f} | std:{result_mean_stat["std"]:.4f})']
-            fig=self.plot(np.stack([target,result_mean]),labels=labels,title=title)
-        else:
-            labels=['target']+[self.rangestr(i,7,e) for i,e in zip(data_rangestart,results_err[1:])]
-            fig=self.plot(all,labels=labels,title=title)
+
+        labels=['target',f'reconstruct (mean:{result_stat["mean"]:.4f} , std:{result_stat["std"]:.4f})']
+        lines=torch.cat([result_stat['target'],result_stat['reconstruct']])
+        xticklabel=None if days<7 else date
+        fig=self.plot(lines,labels=labels,title=title,err=result_stat['error'].squeeze(),metric=metric,xticklabel_start=xticklabel)
+
         if self.tbwriter is not None:
-            self.tbwriter.add_figure(f'data: {data_NFA}{plot_idf}/model: {info["model"]}',fig,(date-self.set.start).days)
+            self.tbwriter.add_figure(f'data: {data_NFA} {info["date"]}/model: {info["model"]}',fig,(date-self.set.start).days)
             self.tbwriter.flush()
         else:
             plt.show(block=False)
 
-
-        return {'fig':fig,'target':target,'reconstruct':result_mean}
 
     def detect_month(self,model_NFA,data_NFA,month,nstart=None,nend=None,plot_idf=''):
         month_first=pd.Timestamp(month)
         days=month_first.days_in_month
         everyday_target=[]
         everyday_reconstruct=[]
+        self.detect_day(model_NFA=model_NFA,data_NFA=data_NFA,date=f'2020-{5}-{1}',days=100,metric='mape')
         for d in range(1,days+1):
             day=self.detect(model_NFA=model_NFA,data_NFA=data_NFA,date=f'{month}-{d}',
                             nstart=nstart,nend=nend,plot_idf=plot_idf,simple=True)
@@ -97,11 +100,16 @@ class Detector():
         else:
             plt.show(block=False)
         ...
-
+    @staticmethod
+    def get_anormaly_interval(error,window,threshold_value,threshold_window):
+        err_3c=error.unsqueeze(1) #convert to 3 channel batch,channel,time
+        result_bool=torch.ones_like(err_3c).where(err_3c>=threshold_value,torch.zeros_like(err_3c))
+        count_window=F.conv1d(result_bool,torch.ones(1,1,window)).flatten()
+        index_interval=(count_window>=threshold_window).nonzero()
 
 
     @staticmethod
-    def plot(output,labels,title,xticklabel_start=None,err=None):
+    def plot(output,labels,title,xticklabel_start=None,err=None,metric='MAPE'):
         data_size=output.shape[-1]
         fig, ax1 = plt.subplots()
         fig.set_figheight(6)
@@ -113,7 +121,7 @@ class Detector():
         ax1.legend()
         if err is not None:
             ax2=ax1.twinx()
-            ax2.plot(range(len(err)),err,alpha=0.5,label='MAE',color='r')
+            ax2.plot(range(len(err)),err,alpha=1,label=metric,color='r')
             yt=ax2.get_yticks()
             # yt_range=yt[-1]-yt[0]
             # yt_new=[yt[-1]*(1-0.5*i) for i in range(7)][::-1]
@@ -151,8 +159,8 @@ def face_north(NFA,total_list):
     north=[i for i in north if i in total_list]
     return NFA in north
 
-if __name__=='__main__':
-    det=Detector(modelpath_prefix='model/B3_L4_K3_U8_T4_C8_pmape_2',
+if __name__=='__main__':#TODO fillbetween
+    det=Detector(modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
                               'dataset/TMbase/data_2111.csv',
                               'dataset/TMbase/data_2112.csv',
@@ -160,7 +168,7 @@ if __name__=='__main__':
                               'dataset/TMbase/data_2202.csv',
                               'dataset/TMbase/data_2203.csv',],
                  device=torch.device('cpu'),
-                 tbwriter='pmape_exp2')
+                 tbwriter='B3_L2_K3_U8_T3_C3_align24')
 
     userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
     userdict={}
@@ -171,12 +179,17 @@ if __name__=='__main__':
 
     for data,models in userdict.items():
         for m in models:
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{3}',nend=None)
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{9}',nend=None)
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{12}',nend=None)
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{1}',nend=None)
-            det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{2}',nend=None)
+            det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=700,metric='mape')
+            det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=610,metric='mape')
+            det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape')
+            ...
+
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{3}',nend=None)
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{9}',nend=None)
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{12}',nend=None)
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{1}',nend=None)
+            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{2}',nend=None)
 
     # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2020}-{12}',nend=None)
     # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2021}-{12}',nend=None)
