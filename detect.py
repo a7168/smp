@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-05-02 13:00:49
+LastEditTime: 2022-05-04 15:25:50
 FilePath: /smp/detect.py
 Description: 
 
@@ -26,14 +26,44 @@ class Detector():
         self.device=device
         self.tbwriter=None if tbwriter is None else SummaryWriter(f'runs/detect/{tbwriter}')
         ...
+    @staticmethod
+    def detect2(model,data,metric):
+        result=model.inference(data,future=None,step=1,trmode=False,gd=False)
+        metric={'mae':torch.nn.L1Loss(reduction='none'),
+                'mape':funcs.MAPE(reduction='none')
+                }.get(metric)
+        error=metric(result['backcast'],data)
+        return {'reconstruct':result['backcast'],
+                'error':error,
+                'mean':error.mean(),
+                'std':error.std()}
 
-    def detect(self,model_NFA,data_NFA,date,days=1,metric='mape',):
+    def detct_month_mean(self,model_NFA,data_NFA,month,metric):
+        if self.net is None or self.net.name!=model_NFA: #load model if need
+            self.net=NBeatsNet.build(f'{self.modelpath_prefix}/{model_NFA}.mdl',new_name=model_NFA,new_device=self.device)
+        data=self.set.get_month_mean(month,data_NFA).unsqueeze(0)
+        result=self.detect2(self.net,data,metric)
+
+        info={'model':self.net.name,'data':data_NFA,'date':f'{month}'}
+        title='\n'.join([f'{i}: {j}' for i,j in info.items()])
+
+        labels=['target',f'reconstruct (mean:{result["mean"]:.4f} , std:{result["std"]:.4f})']
+        lines=torch.cat([data,result['reconstruct']])
+        fig=self.plot(lines,labels=labels,title=title,err=result['error'].squeeze(),metric=metric)
+        if self.tbwriter is not None:
+            self.tbwriter.add_figure(f'{model_NFA} {month}/data: {data_NFA}',fig)
+            self.tbwriter.flush()
+        else:
+            plt.show(block=False)
+
+    def detect(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape',):
         if self.net is None or self.net.name!=model_NFA: #load model if need
             self.net=NBeatsNet.build(f'{self.modelpath_prefix}/{model_NFA}.mdl',new_name=model_NFA,new_device=self.device)
         
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
         target=self.set.getitembydate(date,length=days)[data_NFA].to_numpy(dtype=np.float32)
         x=torch.from_numpy(target).unsqueeze(0)
+        x=x if shift==0 else x.roll(shift,-1)
         inference=self.net.inference(x,future=None,step=1,trmode=False,gd=False)
 
         metric={'mae':torch.nn.L1Loss(reduction='none'),
@@ -46,12 +76,12 @@ class Detector():
                 'mean':results_err.mean(),
                 'std':results_err.std()}
         
-    def detect_day(self,model_NFA,data_NFA,date,days=1,metric='mape'):
+    def detect_day(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape'):
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
         end_date=date+pd.Timedelta(days-1,unit='d')
         end_date_str='' if days==1 else f'to {end_date.year}-{end_date.month}-{end_date.day}'
 
-        result_stat=self.detect(model_NFA,data_NFA,date,days=days,metric=metric)
+        result_stat=self.detect(model_NFA,data_NFA,date,days=days,shift=shift,metric=metric)
         
         info={'model':self.net.name,'data':data_NFA,'date':f'{date.year}-{date.month}-{date.day} {end_date_str}'}
         # title='\n'.join([f'model: {self.net.name}',f'data: {data_NFA}',f'date: {date.year}-{date.month}-{date.day}'])
@@ -159,7 +189,7 @@ def face_north(NFA,total_list):
     north=[i for i in north if i in total_list]
     return NFA in north
 
-if __name__=='__main__':#TODO fillbetween
+def task_find_profile(model_NFA):
     det=Detector(modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
                               'dataset/TMbase/data_2111.csv',
@@ -168,21 +198,49 @@ if __name__=='__main__':#TODO fillbetween
                               'dataset/TMbase/data_2202.csv',
                               'dataset/TMbase/data_2203.csv',],
                  device=torch.device('cpu'),
-                 tbwriter='B3_L2_K3_U8_T3_C3_align24')
-
+                 tbwriter=f'profile/{model_NFA}')
     userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
-    userdict={}
-    for data in userlist:
-        floor=data.split('-')[1]
-        compare_list=[i for i in userlist if floor in i] #compare same floor
-        userdict[data]=compare_list
+    for data_NFA in userlist:
+        for month in ('2022-3','2022-2','2022-1'):
+            det.detct_month_mean(model_NFA=model_NFA,data_NFA=data_NFA,month=month,metric='mape')
 
-    for data,models in userdict.items():
-        for m in models:
-            det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=700,metric='mape')
-            det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=610,metric='mape')
-            det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape')
-            ...
+if __name__=='__main__':#TODO axvspan 209-
+    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+    for i in userlist:
+        print(f'start {i}')
+        task_find_profile(i)
+    ...
+    # det=Detector(modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
+    #              datasetpath=['dataset/TMbase/data_200501_211031.csv',
+    #                           'dataset/TMbase/data_2111.csv',
+    #                           'dataset/TMbase/data_2112.csv',
+    #                           'dataset/TMbase/data_2201.csv',
+    #                           'dataset/TMbase/data_2202.csv',
+    #                           'dataset/TMbase/data_2203.csv',],
+    #              device=torch.device('cpu'),
+    #              tbwriter=None)
+
+    # userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+    # userdict={}
+
+    # # temp_model=NBeatsNet.build(f'exp/B3_L2_K3_U8_T3_C3_align24/model/N16-F04-A01.mdl',new_name='N16-F04-A01',new_device=torch.device('cpu'))
+    # for data in userlist:
+    #     floor=data.split('-')[1]
+    #     compare_list=[i for i in userlist if floor in i] #compare same floor
+    #     userdict[data]=compare_list
+
+    # for data,models in userdict.items():
+    #     for m in models:
+    #         det.detct_month_mean(model_NFA='N16-F04-A01',data_NFA='N16-F04-A01',month='2022-3',metric='mape')
+    #         # det.set.get_month_mean('2022-3-1','N16-F04-A01')
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-3-1',days=7,metric='mape')
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-3-1',days=7,shift=12,metric='mape')
+
+            
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=700,metric='mape')
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=610,metric='mape')
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape')
+    #         ...
 
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{3}',nend=None)
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)

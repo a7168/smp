@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-05-02 08:56:03
+LastEditTime: 2022-05-04 12:57:48
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -103,11 +103,22 @@ class TMbaseset(Dataset):
         seq=self.data[head:head+self.seq_length]
         return seq[:self.sep[0]],seq[self.sep[1]:]
 
-    def getitembydate(self,date,length=1):
+    def getitembydate(self,date,length=1,NFA=None):
         data=self.df
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(*date)
         startidx=(date-self.start).days*24
-        return data.iloc[startidx:startidx+24*length]
+        if NFA is None:
+            return data.iloc[startidx:startidx+24*length]
+        else:
+            return data.iloc[startidx:startidx+24*length][NFA]
+
+    def get_month_mean(self,month,NFA):
+        month_first=pd.Timestamp(month)
+        days=month_first.days_in_month
+        total_data=self.getitembydate(date=month_first,length=days,NFA=NFA)
+        return torch.from_numpy(total_data.to_numpy(dtype=np.float32)).view(-1,24).mean(0)
+        ...
+
 
     @staticmethod
     def select_timerange(df,start_date,end_date):
