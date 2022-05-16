@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-05-02 08:01:32
+LastEditTime: 2022-05-11 02:52:18
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -13,6 +13,7 @@ import random
 from time import time
 from typing import Union
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn, optim
@@ -242,6 +243,24 @@ class NBeatsNet(nn.Module):#TODO loss computation belong to model
             return self(data,future,step)
         with torch.no_grad():
             return self(data,step=step)
+
+    def plot_basis(self):
+        thetas_max=max(self.thetas_dim)
+        total_blocks=len(self.stacks)*self.nb_blocks_per_stack
+        fig=plt.figure()
+        fig.suptitle(f'basis of {self.name}')
+
+        for idx_stack in range(len(self.stacks)):
+            for idx_block in range(self.nb_blocks_per_stack):
+                block_id=idx_stack*self.nb_blocks_per_stack+idx_block
+                for idx_basis,basis in enumerate(self.stacks[idx_stack][idx_block].basis.weight,1):
+                    ax=fig.add_subplot(total_blocks,thetas_max,block_id*thetas_max+idx_basis)
+                    ax.set_title(f'block_{block_id+1} basis_{idx_basis}')
+                    ax.plot(basis[0].detach().numpy())
+                    # ax.legend()
+        fig.tight_layout()
+        # plt.show(block=False)
+        return fig
 
     def count_params(self,cond='all'):
         cond_f={'all':lambda x:True,

@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-05-04 15:25:50
+LastEditTime: 2022-05-11 08:59:07
 FilePath: /smp/detect.py
 Description: 
 
@@ -41,6 +41,12 @@ class Detector():
     def detct_month_mean(self,model_NFA,data_NFA,month,metric):
         if self.net is None or self.net.name!=model_NFA: #load model if need
             self.net=NBeatsNet.build(f'{self.modelpath_prefix}/{model_NFA}.mdl',new_name=model_NFA,new_device=self.device)
+            fig=self.net.plot_basis()
+            if self.tbwriter is not None:
+                self.tbwriter.add_figure(f'basis/{model_NFA}',fig)
+                self.tbwriter.flush()
+            else:
+                plt.show(block=False)
         data=self.set.get_month_mean(month,data_NFA).unsqueeze(0)
         result=self.detect2(self.net,data,metric)
 
@@ -196,16 +202,17 @@ def task_find_profile(model_NFA):
                               'dataset/TMbase/data_2112.csv',
                               'dataset/TMbase/data_2201.csv',
                               'dataset/TMbase/data_2202.csv',
-                              'dataset/TMbase/data_2203.csv',],
+                              'dataset/TMbase/data_2203.csv',
+                              'dataset/TMbase/data_2204.csv',],
                  device=torch.device('cpu'),
-                 tbwriter=f'profile/{model_NFA}')
-    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+                 tbwriter=f'profile2_B3_L2_K3_U8_T3_C3_align24/{model_NFA}')#f'profile_B2_L2_K3_U8_T3_C3_align24/{model_NFA}'
+    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
     for data_NFA in userlist:
-        for month in ('2022-3','2022-2','2022-1'):
+        for month in ('2022-4','2022-3','2022-2','2022-1'):
             det.detct_month_mean(model_NFA=model_NFA,data_NFA=data_NFA,month=month,metric='mape')
 
 if __name__=='__main__':#TODO axvspan 209-
-    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
     for i in userlist:
         print(f'start {i}')
         task_find_profile(i)
