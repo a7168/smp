@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-05-11 02:52:18
+LastEditTime: 2022-05-30 13:30:24
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -474,13 +474,16 @@ class GenericCNN(nn.Module):
         # for i in range(backbone_layers):
         #     cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
         # self.cnnstack=nn.Sequential(*cnnstack)
-        self.cnnstack=nn.Sequential(*[j for i in range(backbone_layers)
-                                            for j in (nn.Conv1d(units if i else 1, units,backbone_kernel_size),
-                                                      nn.ReLU())])
         theta_kernel_size=downsampling_factor-backbone_layers*(backbone_kernel_size-1)
-        self.theta = nn.Sequential(
-                        nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
-                        nn.ReLU(),)
+        self.cnnstack=nn.Sequential(*([j for i in range(backbone_layers)
+                                            for j in (nn.Conv1d(units if i else 1, units,backbone_kernel_size),
+                                                      nn.ReLU())]+
+                                    [nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
+                                     nn.ReLU()]))
+        
+        # self.theta = nn.Sequential(
+        #                 nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
+        #                 nn.ReLU(),)
         self.context_layer=nn.GRU(thetas_dim,context_size) if context_size is not None else None
 
         self.predictModule=self.build_predictModule(block_id=block_id,
@@ -502,8 +505,8 @@ class GenericCNN(nn.Module):
             x=torch.cat((x,y),-1)
         x=x.unsqueeze(1)
         x=x.to(self.device)
-        x= self.cnnstack(x)
-        z=self.theta(x)
+        z= self.cnnstack(x)
+        # z=self.theta(x)
         if y is not None:
             z_back=z[...,:-future_step]
             z_future=z[...,-future_step:]
