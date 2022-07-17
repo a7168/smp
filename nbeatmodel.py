@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-05-30 13:30:24
+LastEditTime: 2022-07-17 16:44:43
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -470,20 +470,13 @@ class GenericCNN(nn.Module):
         self.downsampling_factor=downsampling_factor
         self.device = device
 
-        # cnnstack=[]
-        # for i in range(backbone_layers):
-        #     cnnstack=cnnstack+[nn.Conv1d(units if i!=0 else 1, units,backbone_kernel_size,padding='same'), nn.ReLU()]
-        # self.cnnstack=nn.Sequential(*cnnstack)
         theta_kernel_size=downsampling_factor-backbone_layers*(backbone_kernel_size-1)
         self.cnnstack=nn.Sequential(*([j for i in range(backbone_layers)
                                             for j in (nn.Conv1d(units if i else 1, units,backbone_kernel_size),
                                                       nn.ReLU())]+
                                     [nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
                                      nn.ReLU()]))
-        
-        # self.theta = nn.Sequential(
-        #                 nn.Conv1d(units,thetas_dim,theta_kernel_size,stride=downsampling_factor,bias=False),
-        #                 nn.ReLU(),)
+
         self.context_layer=nn.GRU(thetas_dim,context_size) if context_size is not None else None
 
         self.predictModule=self.build_predictModule(block_id=block_id,
@@ -506,7 +499,6 @@ class GenericCNN(nn.Module):
         x=x.unsqueeze(1)
         x=x.to(self.device)
         z= self.cnnstack(x)
-        # z=self.theta(x)
         if y is not None:
             z_back=z[...,:-future_step]
             z_future=z[...,-future_step:]
@@ -517,19 +509,12 @@ class GenericCNN(nn.Module):
         self.context_layer.flatten_parameters()
         c=self.context_layer(z_back.permute(2,0,1))[0][-1:].permute(1,2,0)# keep batch,channel,seq(layers)
         z_pred=self.predictModule(c,step=step)
-        # z=torch.cat([z,z_pred],-1)
-        # x=self.basis(z)
-        # return x[...,:-self.forecast_length].squeeze(1), x[...,-self.forecast_length:].squeeze(1)
         return {'backcast':self.basis(z_back).squeeze(1),
                 'forecast':self.basis(z_pred).squeeze(1),
                 'future':self.basis(z_future).squeeze(1) if z_future is not None else None,
                 'context':c,
                 'theta_pred':z_pred,
                 'theta_future':z_future}
-        return {'backcast':x[...,:-self.forecast_length].squeeze(1),
-                'forecast':x[...,-self.forecast_length:].squeeze(1),
-                'theta_pred':z_pred,
-                'future_pred':self.basis(z_pred).squeeze(1)}
 
     def __str__(self):
         block_type = type(self).__name__

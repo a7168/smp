@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-06-15 03:48:53
+LastEditTime: 2022-07-17 16:33:58
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -26,22 +26,7 @@ class TMbaseset(Dataset):
         dfs=[pd.read_csv(d,index_col=0) for d in datapath]
         df=pd.concat(dfs,ignore_index=True).dropna(axis=1)
         self.df=df
-        # self.total_df=df
-        # useless_list=self.data_cleansing(df,0.01,120*5,0)
-        # useless_list=self.data_cleansing(df,threshold['value'],threshold['length'],0)
-        # df=df.drop(useless_list, axis=1)
-        
         self.start=pd.to_datetime(self.df['time'])[0]
-        # self.df_normalize_each=((self.df-self.df.mean(numeric_only=True))/self.df.std(numeric_only=True)).fillna(self.df)
-        # column_without_time=[c for c in df.columns if c !='time']
-        # df_numpy=df[column_without_time].to_numpy()
-        # self.df_normalize_all=(df[column_without_time]-df_numpy.mean())/df_numpy.std()
-        # self.df_normalize_all.insert(0,'time',df['time'])
-        
-        # if use_cols=='g':
-        # 	self.data=df[[c for c in df.columns if c !='time']].to_numpy(dtype=np.float32).mean(axis=1,keepdims=True)
-        # else:
-        # 	self.data=np.expand_dims(df[use_cols].to_numpy(dtype=np.float32),axis=-1)
         ...
         
     @staticmethod
@@ -270,11 +255,7 @@ class TMbasesubset(Data.Subset):
             return np.stack([self[i] for i in self.visualindices[:size]])
         else:
             return np.stack([self[i] for i in self.visualindices[:size]])
-            return [np.stack(j) for j in zip(*[self[i] for i in self.visualindices])]
-            
-    # def getsample(self,indices):
-    #     return self.rng.choice(indices,size=len(self),replace=False)
-    #     return self.rng.choice(indices,size=size,replace=False)
+            # return [np.stack(j) for j in zip(*[self[i] for i in self.visualindices])]
 
     @classmethod
     def setrng(cls,seed):

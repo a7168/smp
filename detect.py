@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-07-08 00:41:18
+LastEditTime: 2022-07-17 16:37:11
 FilePath: /smp/detect.py
 Description: 
 
@@ -27,7 +27,7 @@ class Detector():
         self.tbwriter=None if tbwriter is None else SummaryWriter(f'runs/detect/{tbwriter}')
         ...
     @staticmethod
-    def detect2(model,data,metric):
+    def detect2(model,data,metric):# use in detct_month_mean   use month_mean_data not origin
         result=model.inference(data,future=None,step=1,trmode=False,gd=False)
         metric={'mae':torch.nn.L1Loss(reduction='none'),
                 'mape':funcs.MAPE(reduction='none')
@@ -115,38 +115,6 @@ class Detector():
         if threshold is not None:
             return rate[f'abnormal rate(T={threshold})']
 
-
-    def detect_month(self,model_NFA,data_NFA,month,nstart=None,nend=None,plot_idf=''):
-        month_first=pd.Timestamp(month)
-        days=month_first.days_in_month
-        everyday_target=[]
-        everyday_reconstruct=[]
-        self.detect_day(model_NFA=model_NFA,data_NFA=data_NFA,date=f'2020-{5}-{1}',days=100,metric='mape')
-        for d in range(1,days+1):
-            day=self.detect(model_NFA=model_NFA,data_NFA=data_NFA,date=f'{month}-{d}',
-                            nstart=nstart,nend=nend,plot_idf=plot_idf,simple=True)
-            everyday_target.append(day['target'])
-            everyday_reconstruct.append(day['reconstruct'])
-        target=np.concatenate(everyday_target)
-        reconstruct=np.concatenate(everyday_reconstruct)
-
-        mae=torch.nn.L1Loss(reduction='none')
-        mape=funcs.MAPE(reduction='none')
-        metric=mape
-        err=metric(torch.from_numpy(reconstruct),torch.from_numpy(target))
-        stat={'mean':err.mean(),'std':err.std()}
-
-        
-        info={'model':self.net.name,'data':data_NFA,'month':f'{month_first.year}-{month_first.month}'}
-        title='\n'.join([f'{i}: {j}' for i,j in info.items()])
-        labels=['target',f'reconstruct (mean:{stat["mean"]:.4f} | std:{stat["std"]:.4f})']
-        fig=self.plot(np.stack([target,reconstruct]),labels=labels,title=title,xticklabel_start=month_first,err=err)
-        if self.tbwriter is not None:
-            self.tbwriter.add_figure(f'data: {data_NFA} on {info["month"]}{plot_idf}/model: {info["model"]}',fig,(month_first-self.set.start).days)
-            self.tbwriter.flush()
-        else:
-            plt.show(block=False)
-        ...
     @staticmethod
     def get_anormaly_interval(error,window,threshold_value,threshold_window):
         err_3c=error.unsqueeze(1) #convert to 3 channel batch,channel,time
@@ -268,15 +236,3 @@ if __name__=='__main__':#TODO axvspan 209-
     #         # det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape',threshold=0.5)
     #         ...
     # ...
-
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{3}',nend=None)
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{9}',nend=None)
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{12}',nend=None)
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{1}',nend=None)
-            # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{2}',nend=None)
-
-
-        # f1=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F04-A00',date=(2022,1,i))
-        # f2=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F09-A00',date=(2022,1,i))
-        # f3=det.detect(model_NFA='N16-F04-A03',data_NFA='N16-F04-A00',date=(2022,1,i)) 21/1/4~21/3/5

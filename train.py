@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-06-30 16:22:42
+LastEditTime: 2022-07-17 16:40:55
 FilePath: /smp/train.py
 Description: 
 
@@ -137,37 +137,8 @@ class Trainer():
         isbestresult=self.add_log(infodict,selectby='valiadate_all')
         if isbestresult and self.save_model_path is not None:
             self.model.save(self.save_model_path,other_info={'iteration':itrn})
-
         if self.writer is not None:
             self.record_tensorboard()
-        
-        # self.writer.add_scalar('train/all',trainloss[2].item(),itrn)
-        # self.writer.add_scalar('train/back',trainloss[0].item(),itrn)
-        # self.writer.add_scalar('train/fore',trainloss[1].item(),itrn)
-        # if len(trainloss)>=4:
-        #     self.writer.add_scalar('train/infoNCE',trainloss[3].item(),itrn)
-
-        # self.writer.add_scalar('validate/all',verr[2],itrn)
-        # self.writer.add_scalar('validate/back',verr[0],itrn)
-        # self.writer.add_scalar('validate/fore',verr[1],itrn)
-        
-        # trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-        # trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
-        # trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
-        # for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
-        #     self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
-        #     self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
-        #     self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
-            
-        # valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-        # valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
-        # valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
-        # for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
-        #     self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
-        #     self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
-        #     self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
-        
-        # self.writer.flush()
 
     def inference(self,data,future,step,trmode,gd):
         data=data.to(self.device)
@@ -306,13 +277,6 @@ class Trainer():
                 'trainable':lambda x:x.requires_grad}.get(cond)
         return sum(p.numel() for p in self.model.parameters() if cond_f(p))
 
-    # def save(self,path):
-    # 	torch.save(self.model.state_dict(),path)
-
-    # def load(self,path):
-    # 	self.model.load_state_dict(torch.load(path))
-
-    
 class ARGS():
     def __init__(self,argv=None):
         parser=argparse.ArgumentParser()
@@ -340,9 +304,7 @@ class ARGS():
         parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
         parser.add_argument('-cs','--context_size',type=self.nullstr_to_None(int),default=None)
         parser.add_argument('-pm','--predictModule',type=self.nullstr_to_None(str),default=None) #for cnn block
-        # parser.add_argument('-pml','--predict_module_layer',type=self.tonumlist,default=None) #for cnn block
         parser.add_argument('-spm','--share_predict_module',type=self.nullstr_to_None(bool),default=None) #for cnn block
-        # parser.add_argument('-pmhz','--predict_module_hidden_size',type=self.nullstr_to_None(int),default=None) #for cnn block
         parser.add_argument('-pmnl','--predict_module_num_layers',type=self.nullstr_to_None(int),default=None) #for cnn block
 
         #training setting
@@ -351,13 +313,9 @@ class ARGS():
         parser.add_argument('-d','--cudadevice',type=int,default=0)
         parser.add_argument('-rs','--rngseed',type=int,default=None)
         parser.add_argument('-e','--epochs',type=int,default=35)
-        # parser.add_argument('-tbd','--tb_log_dir',type=self.addtbprefix(parser,argv),default=None)
-        # parser.add_argument('-smp','--save_model_path',type=self.addmdlprefix(parser,argv),default=None)
-        # parser.add_argument('-slp','--save_log_path',type=self.addlogprefix(parser,argv),default=None)
         parser.add_argument('-r','--record',type=str,default='e') #i100
         parser.add_argument('-tb','--train_batch',type=int,default=128)
         parser.add_argument('-tnb','--train_negative_batch',type=self.nullstr_to_None(int),default=None)
-        # parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
         parser.add_argument('-vb','--valid_batch',type=int,default=512)
         parser.add_argument('-ss','--samplesize',type=int,default=8)
         parser.add_argument('-tl','--trainlosstype',type=self.lossfunc,default='mape')
@@ -417,7 +375,6 @@ class ARGS():
                 os.makedirs(prefix)
             return f'{prefix}/{args.name}.csv'
         return func
-
 
     @staticmethod
     def adddatasetprefix(parser,argv):
@@ -507,19 +464,14 @@ class ARGS():
                 'backbone_kernel_size':self.backbone_kernel_size,
                 'context_size':self.context_size,
                 'predictModule':self.predictModule,
-                # 'predict_module_layer':self.predict_module_layer,
                 'share_predict_module':self.share_predict_module,
-                # 'predict_module_hidden_size':self.predict_module_hidden_size,
                 'predict_module_num_layers':self.predict_module_num_layers,
                 'trainlosstype':self.trainlosstype,
                 'evaluatemetric':self.evaluatemetric,
                 'optimizer':self.optimizer,
-                # 'tb_log_dir':self.tb_log_dir,
                 'lossratio':self.lossratio,
                 'epochs':self.epochs,
                 'record':self.record,
-                # 'save_log_path':self.save_log_path,
-                # 'save_model_path':self.save_model_path
                 }
 
     nullstr_to_None=staticmethod(nullstr_to_None)
@@ -530,8 +482,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
          
          name,expname,device,stack_types,nb_blocks_per_stack,thetas_dim,share_weights_in_stack,
          hidden_layer_units,backbone_layers,backbone_kernel_size,context_size,
-         predictModule,# predict_module_layer,
-         share_predict_module,# predict_module_hidden_size,
+         predictModule,
+         share_predict_module,
          predict_module_num_layers,
          
          trainlosstype,evaluatemetric,optimizer,lossratio,
@@ -565,9 +517,7 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                     backbone_kernel_size=backbone_kernel_size,
                     context_size=context_size,
                     predictModule=predictModule,
-                    # predict_module_layer=predict_module_layer,
                     share_predict_module=share_predict_module,
-                    # predict_module_hidden_size=predict_module_hidden_size,
                     predict_module_num_layers=predict_module_num_layers)
     exp=Trainer(name=name,expname=expname,
         model=net,
@@ -578,13 +528,10 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                 evmetric=evaluatemetric(),
                 opt=optimizer(net.parameters()),
                 device=device,
-                # tb_log_dir=tb_log_dir,
                 lossratio=lossratio,
                 samplesize=samplesize,)
     exp.train(epochs=epochs,
               record=record,
-            #   save_log_path=save_log_path,
-            #   save_model_path=save_model_path
               )
     ...
 
@@ -618,9 +565,6 @@ def make_argv():
 
              "--name",i,
              "--expname","B1_L2_K3_U8_T6_C12_align24_a00_ep200",
-            #  "--tb_log_dir","B3_L4_K3_U8_T4_C8_mape_nobias",
-            #  "--save_model_path","B3_L4_K3_U8_T4_C8_mape_nobias",
-            #  "--save_log_path","B3_L4_K3_U8_T4_C8_mape_nobias",
              "--epochs", "200",
              "--cudadevice", f"{0}",
              "--rngseed", "6666",
