@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-05-04 12:57:48
+LastEditTime: 2022-06-15 03:48:53
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -101,6 +101,7 @@ class TMbaseset(Dataset):
     def __getitem__(self, index):
         head=self.indices[index]
         seq=self.data[head:head+self.seq_length]
+        return seq
         return seq[:self.sep[0]],seq[self.sep[1]:]
 
     def getitembydate(self,date,length=1,NFA=None):
@@ -155,10 +156,11 @@ class TMbaseset(Dataset):
         # validate=self.indices[-bound:]
         return TMbasesubset(self,train),TMbasesubset(self,validate)
 
-    @staticmethod
-    def plot_user(df,user):
+    def plot_user(self,user,days,start_date=None):
+        start_date=self.start if start_date is None else pd.Timestamp(start_date)
+        data=self.getitembydate(start_date,length=days)[user].to_numpy()
         fig, ax = plt.subplots(figsize=(30,10))
-        ax.plot(df[user].to_numpy())
+        ax.plot(data)
         plt.title(user)
         plt.show()
         return fig
@@ -167,7 +169,8 @@ class TMbaseset(Dataset):
         total_length=len(self.df)
         bound=int(np.floor(total_length*used_ratio))
         user_dataset_list=[]
-        for name in self.use_list:
+        cond1=TMbaseset.filter_use_list(self.use_list,floors=[4,11,15,18])
+        for name in cond1:
             if name!=postive_name:
                 dataset=TMUserDataSet(name=name,
                                       data=np.expand_dims(self.df[name].iloc[:-bound].to_numpy(dtype=np.float32),axis=-1),
@@ -176,7 +179,7 @@ class TMbaseset(Dataset):
                                       align=self.align)
                 user_dataset_list.append(dataset)
         
-        return torch.utils.data.ConcatDataset(user_dataset_list)
+        return TMUserConcatSet(user_dataset_list)
 
     @staticmethod
     def data_cleansing(input,value_threshold,conti_day,gragh):
@@ -258,17 +261,20 @@ class TMbasesubset(Data.Subset):
         super().__init__(dataset,indices)
         self.visualindices=None
 
-    def setvisualindices(self,size):
-        self.visualindices=self.getsample(list(range(len(self))),size)
+    def setvisualindices(self):
+        indices=list(range(len(self)))
+        self.visualindices=self.rng.choice(indices,size=len(self),replace=False)
 
-    def getvisualbatch(self):
+    def getvisualbatch(self,size):
         if self.dataset.sep is None:
-            return np.stack([self[i] for i in self.visualindices])
+            return np.stack([self[i] for i in self.visualindices[:size]])
         else:
+            return np.stack([self[i] for i in self.visualindices[:size]])
             return [np.stack(j) for j in zip(*[self[i] for i in self.visualindices])]
             
-    def getsample(self,indices,size):
-        return self.rng.choice(indices,size=size,replace=False)
+    # def getsample(self,indices):
+    #     return self.rng.choice(indices,size=len(self),replace=False)
+    #     return self.rng.choice(indices,size=size,replace=False)
 
     @classmethod
     def setrng(cls,seed):
@@ -286,10 +292,26 @@ class TMUserDataSet(torch.utils.data.Dataset):
     def __getitem__(self,index):
         head=self.indices[index]
         seq=self.data[head:head+self.seq_length]
+        return seq
         return seq[:self.sep[0]],seq[self.sep[1]:]
 
     def __len__(self):
         return len(self.indices)
+
+class TMUserConcatSet(torch.utils.data.ConcatDataset):
+    def __init__(self,datasets):
+        super().__init__(datasets)
+
+    def setvisualindices(self):
+        indices=list(range(len(self)))
+        self.visualindices=self.rng.choice(indices,size=len(self),replace=False)
+
+    def getvisualbatch(self,size):
+        return np.stack([self[i] for i in self.visualindices[:size]])
+
+    @classmethod
+    def setrng(cls,seed):
+        cls.rng=np.random.default_rng(seed=seed)
 
 class TMbase():
     def __init__(self,datapath,
@@ -310,9 +332,10 @@ class TMbase():
         rawdata.setbackfore(backcast_length)
 
         trainset,validateset=rawdata.splitbyratio(0.1)
-        trainset.setrng(seed=self.generate_seed(globalrng,1000000)) #generate a num as seed to control sample
-        trainset.setvisualindices(samplesize)
-        validateset.setvisualindices(samplesize)
+        seed=self.generate_seed(globalrng,1000000)
+        trainset.setrng(seed=seed) #generate a num as seed to control sample
+        trainset.setvisualindices()
+        validateset.setvisualindices()
 
         trainloader=torch.utils.data.DataLoader(trainset,train_batch,shuffle=True)
         valloader=torch.utils.data.DataLoader(validateset,valid_batch,shuffle=False)
@@ -325,6 +348,8 @@ class TMbase():
         if train_negative_batch is not None:
             self.negative_set=rawdata.get_negative_dataset(postive_name=use_cols,
                                                            used_ratio=0.1)
+            self.negative_set.setrng(seed=seed)
+            self.negative_set.setvisualindices()
             self.negative_loader=torch.utils.data.DataLoader(self.negative_set,train_negative_batch,shuffle=True)
         else:
             self.negative_set=None
@@ -343,6 +368,7 @@ def _localtest():
                                 'dataset/TMbase/data_2201.csv',
                                 'dataset/TMbase/data_2202.csv',
                                 'dataset/TMbase/data_2203.csv',
+                                'dataset/TMbase/data_2204.csv',
                                 ])
     rawdata.parse(date_range=None,
                   align=1,
@@ -353,6 +379,7 @@ def _localtest():
                   seq_length=1*(168+24),)
     rawdata.setbackfore(7*24)
     trainset,validateset=rawdata.splitbyratio(0.1)
+    a=trainset[2]
     ...
 
 if __name__=='__main__':

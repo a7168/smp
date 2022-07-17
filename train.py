@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-05-02 09:01:17
+LastEditTime: 2022-06-30 16:22:42
 FilePath: /smp/train.py
 Description: 
 
@@ -32,7 +32,7 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-    def __init__(self,name,expname,model,trloader,negloader,valloader,lossf,evmetric,opt,device,lossratio):
+    def __init__(self,name,expname,model,trloader,negloader,valloader,lossf,evmetric,opt,device,lossratio,samplesize):
         self.name=name
         self.expname=expname
         self.init_record()
@@ -46,6 +46,7 @@ class Trainer():
         self.device=device
         # self.writer=SummaryWriter(tb_log_dir)
         self.lossratio=lossratio
+        self.samplesize=samplesize
         self.logdf=pd.DataFrame(columns=['epoch','batch','iteration',
                                          'train_back','train_fore','train_all','info_NCE',
                                          'valiadate_back','valiadate_fore','valiadate_all'])
@@ -78,8 +79,10 @@ class Trainer():
             else:
                 neg_iter=None
 
-            for batch,(x,y) in enumerate(self.trloader):
+            # for batch,(x,y) in enumerate(self.trloader):
+            for batch,x in enumerate(self.trloader):
                 iteration+=1
+                x,y=x.split([7*24,1*24],dim=1)
                 x,y=[i.squeeze(-1) for i in (x,y)]
                 result=self.model.inference(x,y,step=1,trmode=True,gd=True)
                 # r2=self.model.inference(x,y,step=3,trmode=True,gd=True)
@@ -88,17 +91,19 @@ class Trainer():
                 loss=self.evaluate(x,y,back,fore,metric=self.lossf)
 
                 if neg_iter is not None:
-                    result2=self.inference(*next(neg_iter),step=1,trmode=True,gd=True)
+                    nx,ny=next(neg_iter).split([7*24,1*24],dim=1)
+                    result2=self.inference(nx,ny,step=1,trmode=True,gd=True)
                     loss.append(self.evaluate_infoNCE(result,result2,cross_entropy))
 
                 self.update(sum([i*j for i,j in zip(loss,self.lossratio)]))
 
-                
+                # context=torch.cat([result['context'],result2['context']])
+                # embeding={'mat':context,'metadata':['+']*len(result['context'])+['-']*len(result2['context'])}
                 if record[0]=='i' and iteration%(int(record[1:]))==0:
-                    self.validate(ep,batch,iteration,loss)
+                    self.validate(ep,batch,iteration,loss,)
                     
             if record[0]=='e':
-                self.validate(ep,batch,iteration,loss)
+                self.validate(ep,batch,iteration,loss,)
         if self.save_log_path is not None:
             self.logdf.to_csv(self.save_log_path)
         ...
@@ -108,9 +113,10 @@ class Trainer():
         loss.backward()
         self.opt.step()
 
-    def validate(self,ep,batch,itrn,trainloss):
+    def validate(self,ep,batch,itrn,trainloss,):
         err_batch=[]
-        for x,y in self.valloader:
+        for x in self.valloader:
+            x,y=x.split([7*24,1*24],dim=1)
             result=self.inference(x,future=None,step=1,trmode=False,gd=False)
             err=self.evaluate(x.squeeze(-1),y.squeeze(-1),result['backcast'],result['forecast'],metric=self.evmetric,tocpu=True)
             err_batch.append(err)
@@ -128,7 +134,7 @@ class Trainer():
                 'train_back':[trainloss[0].item()],'train_fore':[trainloss[1].item()],'train_all':[trainloss[2].item()],
                 'info_NCE':[np.nan if len(trainloss)<4 else trainloss[3].item()],
                 'valiadate_back':[verr[0]],'valiadate_fore':[verr[1]],'valiadate_all':[verr[2]]}
-        isbestresult=self.add_log(infodict,selectby='valiadate_fore')
+        isbestresult=self.add_log(infodict,selectby='valiadate_all')
         if isbestresult and self.save_model_path is not None:
             self.model.save(self.save_model_path,other_info={'iteration':itrn})
 
@@ -227,7 +233,8 @@ class Trainer():
         self.writer.add_scalar('validate/back',get_current('valiadate_back'),itrn)
         self.writer.add_scalar('validate/fore',get_current('valiadate_fore'),itrn)
         
-        trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
+        # trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
+        trainsample_x,trainsample_y=torch.from_numpy(self.trloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
         trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
         trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
         for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
@@ -235,7 +242,8 @@ class Trainer():
             self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
             self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
             
-        valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
+        # valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
+        valsample_x,valsample_y=torch.from_numpy(self.valloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
         valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
         valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
         for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
@@ -243,6 +251,14 @@ class Trainer():
             self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
             self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
         
+        #embedding part
+        px,py=torch.from_numpy(self.trloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
+        p_result=self.inference(px,future=None,step=1,trmode=False,gd=False)
+        nx,ny=torch.from_numpy(self.negloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
+        n_result=self.inference(nx,future=None,step=1,trmode=False,gd=False)
+        mat=torch.cat([p_result['context'],n_result['context']])
+        metadata=['+']*128+['-']*128
+        self.writer.add_embedding(mat=mat,metadata=metadata,global_step=itrn,tag=self.name)
         self.writer.flush()
 
     def plotall(self,x,y,b,f):
@@ -339,7 +355,7 @@ class ARGS():
         # parser.add_argument('-smp','--save_model_path',type=self.addmdlprefix(parser,argv),default=None)
         # parser.add_argument('-slp','--save_log_path',type=self.addlogprefix(parser,argv),default=None)
         parser.add_argument('-r','--record',type=str,default='e') #i100
-        parser.add_argument('-tb','--train_batch',type=int,default=512)
+        parser.add_argument('-tb','--train_batch',type=int,default=128)
         parser.add_argument('-tnb','--train_negative_batch',type=self.nullstr_to_None(int),default=None)
         # parser.add_argument('-vr','--valid_ratio',type=int,default=0.1)
         parser.add_argument('-vb','--valid_batch',type=int,default=512)
@@ -563,7 +579,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                 opt=optimizer(net.parameters()),
                 device=device,
                 # tb_log_dir=tb_log_dir,
-                lossratio=lossratio)
+                lossratio=lossratio,
+                samplesize=samplesize,)
     exp.train(epochs=epochs,
               record=record,
             #   save_log_path=save_log_path,
@@ -577,41 +594,42 @@ def main_cmdargv(argv):
     ...
 
 def make_argv():
-    device=1
-    cond1=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
+    device=0
+    cond1=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
     return [['--dataset', 'TMbase',
              "--datapath","data_200501_211031.csv","data_2111.csv","data_2112.csv",
-                          "data_2201.csv","data_2202.csv","data_2203.csv",
-             "--date_range", "","",
+                          "data_2201.csv","data_2202.csv","data_2203.csv","data_2204.csv",
+             "--date_range", "2020-6-1","",
              "--data_clean_threshold", "0.01,600",
-             "--cleaned_user_list","dataset/TMbase/use_list3.json",
+             "--cleaned_user_list","dataset/TMbase/use_list4.json",
              "--timeunit","1",
              "--align","24",
              "--use_cols",i,
              "--normalized_method","",
 
              "--stack_types", "c",
-             "--nb_blocks_per_stack", "3",
+             "--nb_blocks_per_stack", "1",
              "--backbone_layers", "2",
              "--backbone_kernel_size", "3",
              "--hidden_layer_units", "8",
-             "--thetas_dim", "3",
+             "--thetas_dim", "6",
              "--predictModule","lstm",
-             "--context_size","3",
+             "--context_size","12",
 
              "--name",i,
-             "--expname","B3_L2_K3_U8_T3_C3_align24",
+             "--expname","B1_L2_K3_U8_T6_C12_align24_a00_ep200",
             #  "--tb_log_dir","B3_L4_K3_U8_T4_C8_mape_nobias",
             #  "--save_model_path","B3_L4_K3_U8_T4_C8_mape_nobias",
             #  "--save_log_path","B3_L4_K3_U8_T4_C8_mape_nobias",
-             "--epochs", "100",
-             "--cudadevice", f"{device}",
+             "--epochs", "200",
+             "--cudadevice", f"{0}",
              "--rngseed", "6666",
              "--trainlosstype","mape",
              "--lossratio","0,0,1,0",
              "--evaluatemetric","mape",
-             "--train_negative_batch","",
+             "--train_negative_batch","256",
              ] for i in cond1[device::2]]
+            #  ] for i in ['N16-F04-A01']]
 
 if __name__=='__main__':
     settings=[None]
