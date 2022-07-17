@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-05-11 08:59:07
+LastEditTime: 2022-07-08 00:41:18
 FilePath: /smp/detect.py
 Description: 
 
@@ -82,14 +82,22 @@ class Detector():
                 'mean':results_err.mean(),
                 'std':results_err.std()}
         
-    def detect_day(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape'):
+    def detect_day(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape',threshold=None):
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
         end_date=date+pd.Timedelta(days-1,unit='d')
         end_date_str='' if days==1 else f'to {end_date.year}-{end_date.month}-{end_date.day}'
 
         result_stat=self.detect(model_NFA,data_NFA,date,days=days,shift=shift,metric=metric)
+        if threshold is None:
+            rate={}
+        else:
+            err=result_stat['error']
+            rate={f'abnormal rate(T={threshold})':(err>threshold).count_nonzero()/err.numel()}
         
-        info={'model':self.net.name,'data':data_NFA,'date':f'{date.year}-{date.month}-{date.day} {end_date_str}'}
+        info={'model':self.net.name,
+              'data':data_NFA,
+              'date':f'{date.year}-{date.month}-{date.day} {end_date_str}',}|rate
+            #   f'abnormal rate(T={threshold})':(err>threshold).count_nonzero()/err.numel()}
         # title='\n'.join([f'model: {self.net.name}',f'data: {data_NFA}',f'date: {date.year}-{date.month}-{date.day}'])
         title='\n'.join([f'{i}: {j}' for i,j in info.items()])
 
@@ -103,6 +111,9 @@ class Detector():
             self.tbwriter.flush()
         else:
             plt.show(block=False)
+        # self.set.plot_user('N16-F04-A01',days=8)
+        if threshold is not None:
+            return rate[f'abnormal rate(T={threshold})']
 
 
     def detect_month(self,model_NFA,data_NFA,month,nstart=None,nend=None,plot_idf=''):
@@ -195,6 +206,10 @@ def face_north(NFA,total_list):
     north=[i for i in north if i in total_list]
     return NFA in north
 
+def task_detect_period():
+    ...
+
+
 def task_find_profile(model_NFA):
     det=Detector(modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
                  datasetpath=['dataset/TMbase/data_200501_211031.csv',
@@ -212,42 +227,47 @@ def task_find_profile(model_NFA):
             det.detct_month_mean(model_NFA=model_NFA,data_NFA=data_NFA,month=month,metric='mape')
 
 if __name__=='__main__':#TODO axvspan 209-
-    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
-    for i in userlist:
-        print(f'start {i}')
-        task_find_profile(i)
+    # userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
+    # for i in userlist:
+    #     print(f'start {i}')
+    #     task_find_profile(i)
     ...
-    # det=Detector(modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
-    #              datasetpath=['dataset/TMbase/data_200501_211031.csv',
-    #                           'dataset/TMbase/data_2111.csv',
-    #                           'dataset/TMbase/data_2112.csv',
-    #                           'dataset/TMbase/data_2201.csv',
-    #                           'dataset/TMbase/data_2202.csv',
-    #                           'dataset/TMbase/data_2203.csv',],
-    #              device=torch.device('cpu'),
-    #              tbwriter=None)
+    det=Detector(#modelpath_prefix='exp/B3_L2_K3_U8_T3_C3_align24/model',
+                 modelpath_prefix='exp/B2_L2_K3_U8_T3_C6_align24_a05_ep200/model',
+                #  modelpath_prefix='exp/B1_L2_K3_U8_T6_C12_align24_a00_ep200/model',
+                 datasetpath=['dataset/TMbase/data_200501_211031.csv',
+                              'dataset/TMbase/data_2111.csv',
+                              'dataset/TMbase/data_2112.csv',
+                              'dataset/TMbase/data_2201.csv',
+                              'dataset/TMbase/data_2202.csv',
+                              'dataset/TMbase/data_2203.csv',
+                              'dataset/TMbase/data_2204.csv',],
+                 device=torch.device('cpu'),
+                 tbwriter=None)
 
-    # userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list3.json'),floors=[4,11,15,18])
-    # userdict={}
+    userlist=TMbaseset.filter_use_list(TMbaseset.load_use_list('dataset/TMbase/use_list4.json'),floors=[4,11,15,18])
+    userdict={}
 
-    # # temp_model=NBeatsNet.build(f'exp/B3_L2_K3_U8_T3_C3_align24/model/N16-F04-A01.mdl',new_name='N16-F04-A01',new_device=torch.device('cpu'))
-    # for data in userlist:
-    #     floor=data.split('-')[1]
-    #     compare_list=[i for i in userlist if floor in i] #compare same floor
-    #     userdict[data]=compare_list
+    # temp_model=NBeatsNet.build(f'exp/B3_L2_K3_U8_T3_C3_align24/model/N16-F04-A01.mdl',new_name='N16-F04-A01',new_device=torch.device('cpu'))
+    for data in userlist:
+        floor=data.split('-')[1]
+        compare_list=[i for i in userlist if floor in i] #compare same floor
+        userdict[data]=compare_list
+
+    result={}#detect self data with different threshold
+    for user in userlist:
+        for T in (0.5,0.6,0.7):
+            result[f'{user} T={T}']=det.detect_day(model_NFA=user,data_NFA=user,date=f'2020-5-1',days=730,metric='mape',threshold=T)
+            ...
+    ...
 
     # for data,models in userdict.items():
     #     for m in models:
-    #         det.detct_month_mean(model_NFA='N16-F04-A01',data_NFA='N16-F04-A01',month='2022-3',metric='mape')
-    #         # det.set.get_month_mean('2022-3-1','N16-F04-A01')
-    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-3-1',days=7,metric='mape')
-    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-3-1',days=7,shift=12,metric='mape')
-
-            
-    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=700,metric='mape')
-    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=610,metric='mape')
-    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape')
+    #         det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=730,metric='mape',threshold=0.5)
+    #         # det.detect_day(model_NFA=m,data_NFA=data,date=f'2020-5-1',days=610,metric='mape',threshold=0.5)
+    #         # det.detect_day(model_NFA=m,data_NFA=data,date=f'2022-1-1',days=90,metric='mape',threshold=0.5)
     #         ...
+    # ...
 
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{3}',nend=None)
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2021}-{6}',nend=None)
@@ -256,18 +276,7 @@ if __name__=='__main__':#TODO axvspan 209-
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{1}',nend=None)
             # det.detect_month(model_NFA=m,data_NFA=data,month=f'{2022}-{2}',nend=None)
 
-    # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2020}-{12}',nend=None)
-    # det.detect_month(model_NFA='N16-F04-A07',data_NFA='N16-F04-A07',month=f'{2021}-{12}',nend=None)
-
-
-    # for model in userlist:
-    #     for data in userlist:
-    #         for i in range(1,8):
-    #             det.detect_month(model_NFA=model,data_NFA=data,date=f'{2022}-{1}-{7}')
 
         # f1=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F04-A00',date=(2022,1,i))
         # f2=det.detect(model_NFA='N16-F09-A00',data_NFA='N16-F09-A00',date=(2022,1,i))
         # f3=det.detect(model_NFA='N16-F04-A03',data_NFA='N16-F04-A00',date=(2022,1,i)) 21/1/4~21/3/5
-
-    
-    ...
