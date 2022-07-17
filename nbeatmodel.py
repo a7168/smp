@@ -2,7 +2,7 @@
 Author: philipperemy
 Date: 2021-12-29 13:26:27
 LastEditors: Egoist
-LastEditTime: 2022-07-17 16:44:43
+LastEditTime: 2022-07-17 18:43:40
 FilePath: /smp/nbeatmodel.py
 Description: 
     Modify from pytorch implementation of nbeat by philipperemy
@@ -462,7 +462,12 @@ class GenericCNN(nn.Module):
                  backbone_layers=4,
                  share_thetas=False,
                  downsampling_factor=24,
-                 context_size=None,predictModule=None,share_predict_module=False,backbone_kernel_size=3,**predict_module_setting):
+                 context_size=None,
+                 predictModule=None,
+                 share_predict_module=False,
+                 backbone_kernel_size=3,
+                 basis_constrain=True,
+                 **predict_module_setting):
         super(GenericCNN, self).__init__()
         self.units = units
         self.thetas_dim = thetas_dim
@@ -486,7 +491,8 @@ class GenericCNN(nn.Module):
                                                     predict_module_setting=predict_module_setting)
 
         self.basis = nn.ConvTranspose1d(thetas_dim,1,self.downsampling_factor,stride=self.downsampling_factor,bias=False)
-        parametrize.register_parametrization(self.basis, "weight", LogvarParametrize())
+        if basis_constrain:
+            parametrize.register_parametrization(self.basis, "weight", LogvarParametrize())
         ...
 
     def forward(self, x,y=None,step=1):

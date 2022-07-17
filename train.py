@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-07-17 16:40:55
+LastEditTime: 2022-07-17 19:33:29
 FilePath: /smp/train.py
 Description: 
 
@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 import sys
 import os
+import json
 from torch.utils.tensorboard import SummaryWriter
 # =============================================================================
 # import matplotlib as mpl
@@ -300,6 +301,7 @@ class ARGS():
         parser.add_argument('-bl','--backcast_length',type=int,default=7*24)
         parser.add_argument('-dsf','--downsampling_factor',type=int,default=24)
         parser.add_argument('-tdim','--thetas_dim',type=self.tonumlist,default='4,4')
+        parser.add_argument('-bc','--basis_constrain',type=bool,default=None)
         parser.add_argument('-swis','--share_weights_in_stack',type=bool,default=False)
         parser.add_argument('-hlu','--hidden_layer_units',type=int,default=8)
         parser.add_argument('-cs','--context_size',type=self.nullstr_to_None(int),default=None)
@@ -332,6 +334,10 @@ class ARGS():
                           'TMbase':TMbase}.get(self.dataset)
 
         print(f'args:{vars(self)}','='*15,sep='\n')
+        if not os.path.isdir(f'exp/{self.expname}'):
+            os.makedirs(f'exp/{self.expname}')
+        with open(f'exp/{self.expname}/info.json', 'w', encoding='utf-8') as f:
+            json.dump({i:str(j) for i,j in vars(self).items()}, f, ensure_ascii=False, indent=4)
         ...
         
     # def __getattr__(self,key):
@@ -434,60 +440,20 @@ class ARGS():
         print('='*15)
         return dev
 
-    def get_argdict(self):
-        return {'datasetprep':self.datasetprep,
-                'datapath':self.datapath,
-                'date_range':self.date_range,
-                'data_clean_threshold':self.data_clean_threshold,
-                'cleaned_user_list':self.cleaned_user_list,
-                'normalized_method':self.normalized_method,
-                'use_cols':self.use_cols,
-                'timeunit':self.timeunit,
-                'align':self.align,
-                'forecast_length':self.forecast_length,
-                'backcast_length':self.backcast_length,
-                'downsampling_factor':self.downsampling_factor,
-                'globalrng':self.globalrng,
-                'samplesize':self.samplesize,
-                'train_batch':self.train_batch,
-                'train_negative_batch':self.train_negative_batch,
-                'valid_batch':self.valid_batch,
-                'name':self.name,
-                'expname':self.expname,
-                'device':self.device,
-                'stack_types':self.stack_types,
-                'nb_blocks_per_stack':self.nb_blocks_per_stack,
-                'thetas_dim':self.thetas_dim,
-                'share_weights_in_stack':self.share_weights_in_stack,
-                'hidden_layer_units':self.hidden_layer_units,
-                'backbone_layers':self.backbone_layers,
-                'backbone_kernel_size':self.backbone_kernel_size,
-                'context_size':self.context_size,
-                'predictModule':self.predictModule,
-                'share_predict_module':self.share_predict_module,
-                'predict_module_num_layers':self.predict_module_num_layers,
-                'trainlosstype':self.trainlosstype,
-                'evaluatemetric':self.evaluatemetric,
-                'optimizer':self.optimizer,
-                'lossratio':self.lossratio,
-                'epochs':self.epochs,
-                'record':self.record,
-                }
-
     nullstr_to_None=staticmethod(nullstr_to_None)
     
 def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,normalized_method,
          use_cols,timeunit,align,forecast_length,backcast_length,downsampling_factor,
          globalrng,samplesize,train_batch,train_negative_batch,valid_batch,
          
-         name,expname,device,stack_types,nb_blocks_per_stack,thetas_dim,share_weights_in_stack,
+         name,expname,device,stack_types,nb_blocks_per_stack,thetas_dim,basis_constrain,share_weights_in_stack,
          hidden_layer_units,backbone_layers,backbone_kernel_size,context_size,
          predictModule,
          share_predict_module,
          predict_module_num_layers,
          
          trainlosstype,evaluatemetric,optimizer,lossratio,
-         epochs,record,):
+         epochs,record,**unused_argd):
     dataset=datasetprep(datapath=datapath,
                         date_range=date_range,
                         data_clean_threshold=data_clean_threshold,
@@ -511,6 +477,7 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                     backcast_length=backcast_length,
                     downsampling_factor=downsampling_factor,
                     thetas_dim=thetas_dim,
+                    basis_constrain=basis_constrain,
                     share_weights_in_stack=share_weights_in_stack,
                     hidden_layer_units=hidden_layer_units,
                     backbone_layers=backbone_layers,
@@ -537,7 +504,7 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
 
 def main_cmdargv(argv):
     args=ARGS(argv)
-    main(**args.get_argdict())
+    main(**vars(args))
     ...
 
 def make_argv():
@@ -578,7 +545,7 @@ def make_argv():
 if __name__=='__main__':
     settings=[None]
 
-    for s in make_argv():
+    for s in settings:
         main_cmdargv(s)
         ...
     ...
