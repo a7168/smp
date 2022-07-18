@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-07-17 19:33:29
+LastEditTime: 2022-07-17 19:46:00
 FilePath: /smp/train.py
 Description: 
 
@@ -61,11 +61,11 @@ class Trainer():
             self.save_model_path=None
             self.writer=None
         else:
-            prefix=f'exp/{self.expname}'
-            if not os.path.isdir(prefix):
-                os.makedirs(f'{prefix}/run')
-                os.makedirs(f'{prefix}/log')
-                os.makedirs(f'{prefix}/model')
+            # prefix=f'exp/{self.expname}'
+            # if not os.path.isdir(prefix):
+            #     os.makedirs(f'{prefix}/run')
+            #     os.makedirs(f'{prefix}/log')
+            #     os.makedirs(f'{prefix}/model')
             tb_log_dir=f'exp/{self.expname}/run/{self.name}'
             self.save_log_path=f'exp/{self.expname}/log/{self.name}.csv'
             self.save_model_path=f'exp/{self.expname}/model/{self.name}.mdl'
@@ -334,9 +334,8 @@ class ARGS():
                           'TMbase':TMbase}.get(self.dataset)
 
         print(f'args:{vars(self)}','='*15,sep='\n')
-        if not os.path.isdir(f'exp/{self.expname}'):
-            os.makedirs(f'exp/{self.expname}')
-        with open(f'exp/{self.expname}/info.json', 'w', encoding='utf-8') as f:
+        self.checkdir(f'exp/{self.expname}')
+        with open(f'exp/{self.expname}/info_{self.name}.json', 'w', encoding='utf-8') as f:
             json.dump({i:str(j) for i,j in vars(self).items()}, f, ensure_ascii=False, indent=4)
         ...
         
@@ -439,6 +438,13 @@ class ARGS():
         print(f'use device: {(dev:=torch.device(f"cuda:{cudadevice}" if cuava else "cpu"))}')
         print('='*15)
         return dev
+
+    @staticmethod
+    def checkdir(path):
+        if not os.path.isdir(path):
+            os.makedirs(f'{path}/run')
+            os.makedirs(f'{path}/log')
+            os.makedirs(f'{path}/model')
 
     nullstr_to_None=staticmethod(nullstr_to_None)
     
