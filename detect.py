@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-07-17 16:37:11
+LastEditTime: 2022-07-18 08:38:28
 FilePath: /smp/detect.py
 Description: 
 
@@ -107,7 +107,8 @@ class Detector():
         fig=self.plot(lines,labels=labels,title=title,err=result_stat['error'].squeeze(),metric=metric,xticklabel_start=xticklabel)
 
         if self.tbwriter is not None:
-            self.tbwriter.add_figure(f'data: {data_NFA} {info["date"]}/model: {info["model"]}',fig,(date-self.set.start).days)
+            # self.tbwriter.add_figure(f'data: {data_NFA} {info["date"]}/model: {info["model"]}',fig,(date-self.set.start).days)
+            self.tbwriter.add_figure(f'model: {info["model"]}/data: {data_NFA} {info["date"]}',fig,(date-self.set.start).days)
             self.tbwriter.flush()
         else:
             plt.show(block=False)
