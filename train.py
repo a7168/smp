@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-07-17 19:46:00
+LastEditTime: 2022-07-19 15:29:24
 FilePath: /smp/train.py
 Description: 
 
@@ -33,7 +33,9 @@ import warnings
 warnings.filterwarnings(action='ignore', message='Setting attributes')
 
 class Trainer():
-    def __init__(self,name,expname,model,trloader,negloader,valloader,lossf,evmetric,opt,device,lossratio,samplesize):
+    def __init__(self,name,expname,
+                 model,trloader,negloader,valloader,lossf,evmetric,opt,device,lossratio,samplesize,
+                 context_visualization):
         self.name=name
         self.expname=expname
         self.init_record()
@@ -48,6 +50,7 @@ class Trainer():
         # self.writer=SummaryWriter(tb_log_dir)
         self.lossratio=lossratio
         self.samplesize=samplesize
+        self.context_visualization=context_visualization
         self.logdf=pd.DataFrame(columns=['epoch','batch','iteration',
                                          'train_back','train_fore','train_all','info_NCE',
                                          'valiadate_back','valiadate_fore','valiadate_all'])
@@ -224,13 +227,14 @@ class Trainer():
             self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
         
         #embedding part
-        px,py=torch.from_numpy(self.trloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
-        p_result=self.inference(px,future=None,step=1,trmode=False,gd=False)
-        nx,ny=torch.from_numpy(self.negloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
-        n_result=self.inference(nx,future=None,step=1,trmode=False,gd=False)
-        mat=torch.cat([p_result['context'],n_result['context']])
-        metadata=['+']*128+['-']*128
-        self.writer.add_embedding(mat=mat,metadata=metadata,global_step=itrn,tag=self.name)
+        if self.context_visualization:
+            px,py=torch.from_numpy(self.trloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
+            p_result=self.inference(px,future=None,step=1,trmode=False,gd=False)
+            nx,ny=torch.from_numpy(self.negloader.dataset.getvisualbatch(128)).split([7*24,1*24],dim=1)
+            n_result=self.inference(nx,future=None,step=1,trmode=False,gd=False)
+            mat=torch.cat([p_result['context'],n_result['context']])
+            metadata=['+']*128+['-']*128
+            self.writer.add_embedding(mat=mat,metadata=metadata,global_step=itrn,tag=self.name)
         self.writer.flush()
 
     def plotall(self,x,y,b,f):
@@ -324,6 +328,8 @@ class ARGS():
         parser.add_argument('-lr','--lossratio',type=self.tofloatlist,default='0,0,1')
         parser.add_argument('-em','--evaluatemetric',type=self.lossfunc,default='mape')
         parser.add_argument('-opt','--optimizer',type=self.optalgo,default='adam')
+        parser.add_argument('-cv','--context_visualization',type=bool,default=False)
+
         
         parser.parse_args(args=argv,namespace=self)
         # print(f'use args : =============')
@@ -459,7 +465,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
          predict_module_num_layers,
          
          trainlosstype,evaluatemetric,optimizer,lossratio,
-         epochs,record,**unused_argd):
+         epochs,record,context_visualization,
+         **unused_argd):
     dataset=datasetprep(datapath=datapath,
                         date_range=date_range,
                         data_clean_threshold=data_clean_threshold,
@@ -492,8 +499,9 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                     predictModule=predictModule,
                     share_predict_module=share_predict_module,
                     predict_module_num_layers=predict_module_num_layers)
-    exp=Trainer(name=name,expname=expname,
-        model=net,
+    exp=Trainer(name=name,
+                expname=expname,
+                model=net,
                 trloader=dataset.trainloader,
                 negloader=dataset.negative_loader,
                 valloader=dataset.valloader,
@@ -502,7 +510,8 @@ def main(datasetprep,datapath,date_range,data_clean_threshold,cleaned_user_list,
                 opt=optimizer(net.parameters()),
                 device=device,
                 lossratio=lossratio,
-                samplesize=samplesize,)
+                samplesize=samplesize,
+                context_visualization=context_visualization)
     exp.train(epochs=epochs,
               record=record,
               )
