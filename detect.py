@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-03-07 13:22:43
 LastEditors: Egoist
-LastEditTime: 2022-07-18 08:38:28
+LastEditTime: 2022-07-22 15:42:33
 FilePath: /smp/detect.py
 Description: 
 
@@ -19,8 +19,9 @@ from readTMbase import TMbaseset
 import funcs
 
 class Detector():
-    def __init__(self,modelpath_prefix,datasetpath,device=None,tbwriter=None):
-        self.modelpath_prefix=modelpath_prefix
+    def __init__(self,expname,datasetpath,device=None,tbwriter=None):
+        self.expname=expname
+        self.modelpath_prefix=f'exp/{expname}/model'
         self.net=None
         self.set=TMbaseset(datasetpath)
         self.device=device
@@ -50,7 +51,7 @@ class Detector():
         data=self.set.get_month_mean(month,data_NFA).unsqueeze(0)
         result=self.detect2(self.net,data,metric)
 
-        info={'model':self.net.name,'data':data_NFA,'date':f'{month}'}
+        info={'experiment':self.expname,'model':self.net.name,'data':data_NFA,'date':f'{month}'}
         title='\n'.join([f'{i}: {j}' for i,j in info.items()])
 
         labels=['target',f'reconstruct (mean:{result["mean"]:.4f} , std:{result["std"]:.4f})']
@@ -82,7 +83,7 @@ class Detector():
                 'mean':results_err.mean(),
                 'std':results_err.std()}
         
-    def detect_day(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape',threshold=None):
+    def detect_day(self,model_NFA,data_NFA,date,days=1,shift=0,metric='mape',threshold=None,showerr=True):
         date=date if isinstance(date,pd.Timestamp) else pd.Timestamp(date)
         end_date=date+pd.Timedelta(days-1,unit='d')
         end_date_str='' if days==1 else f'to {end_date.year}-{end_date.month}-{end_date.day}'
@@ -94,7 +95,8 @@ class Detector():
             err=result_stat['error']
             rate={f'abnormal rate(T={threshold})':(err>threshold).count_nonzero()/err.numel()}
         
-        info={'model':self.net.name,
+        info={'experiment':self.expname,
+              'model':self.net.name,
               'data':data_NFA,
               'date':f'{date.year}-{date.month}-{date.day} {end_date_str}',}|rate
             #   f'abnormal rate(T={threshold})':(err>threshold).count_nonzero()/err.numel()}
@@ -104,7 +106,8 @@ class Detector():
         labels=['target',f'reconstruct (mean:{result_stat["mean"]:.4f} , std:{result_stat["std"]:.4f})']
         lines=torch.cat([result_stat['target'],result_stat['reconstruct']])
         xticklabel=None if days<7 else date
-        fig=self.plot(lines,labels=labels,title=title,err=result_stat['error'].squeeze(),metric=metric,xticklabel_start=xticklabel)
+        err=result_stat['error'].squeeze() if showerr else None
+        fig=self.plot(lines,labels=labels,title=title,err=err,metric=metric,xticklabel_start=xticklabel)
 
         if self.tbwriter is not None:
             # self.tbwriter.add_figure(f'data: {data_NFA} {info["date"]}/model: {info["model"]}',fig,(date-self.set.start).days)
