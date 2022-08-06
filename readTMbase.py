@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-02-18 16:21:42
 LastEditors: Egoist
-LastEditTime: 2022-07-17 16:33:58
+LastEditTime: 2022-07-19 17:20:26
 FilePath: /smp/readTMbase.py
 Description: 
 
@@ -141,10 +141,10 @@ class TMbaseset(Dataset):
         # validate=self.indices[-bound:]
         return TMbasesubset(self,train),TMbasesubset(self,validate)
 
-    def plot_user(self,user,days,start_date=None):
+    def plot_user(self,user,days,start_date=None,figsize=(30,10)):
         start_date=self.start if start_date is None else pd.Timestamp(start_date)
         data=self.getitembydate(start_date,length=days)[user].to_numpy()
-        fig, ax = plt.subplots(figsize=(30,10))
+        fig, ax = plt.subplots(figsize=figsize)
         ax.plot(data)
         plt.title(user)
         plt.show()
