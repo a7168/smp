@@ -1,9 +1,13 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Oct  7 02:13:45 2021
+'''
+Author: Egoist
+Date: 2021-10-07 02:13:45
+LastEditors: Egoist
+LastEditTime: 2022-08-06 12:14:25
+FilePath: /smp/api.py
+Description: 
 
-@author: acm
-"""
+'''
+
 # %%
 import os
 import json
@@ -193,7 +197,10 @@ class TMAPI():
         r=requests.get(f'http://{self.ip}/ebuilding/meter.asmx/getMainPowerMeterByTimeDivision',
                  params=argd,proxies=self.proxy)
         if r.status_code == requests.codes.ok:
-            return r.json()
+            try:
+                return r.json()
+            except Exception as e:
+                print(e)
         else:
             print(f'get1d request {identifier} failure')
             
