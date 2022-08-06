@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-07-19 15:29:24
+LastEditTime: 2022-07-23 18:54:22
 FilePath: /smp/train.py
 Description: 
 
@@ -439,9 +439,12 @@ class ARGS():
         # print('=============================')
         print(f'python ver. {sys.version}')
         print(f'pytorch ver. {torch.__version__}')
-        print(f'cuda ver. {torch.version.cuda}')
-        print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
-        print(f'use device: {(dev:=torch.device(f"cuda:{cudadevice}" if cuava else "cpu"))}')
+        if cudadevice==-1:
+            print(f'use device: {(dev:=torch.device("cpu"))}')
+        else:
+            print(f'cuda ver. {torch.version.cuda}')
+            print(f'cuda avail : {(cuava:=torch.cuda.is_available())}')
+            print(f'use device: {(dev:=torch.device(f"cuda:{cudadevice}" if cuava else "cpu"))}')
         print('='*15)
         return dev
 
