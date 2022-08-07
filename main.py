@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-06-10 15:43:23
 LastEditors: Egoist
-LastEditTime: 2022-08-06 02:44:06
+LastEditTime: 2022-08-07 15:33:32
 FilePath: /smp/main.py
 Description: 
     run different task in this script
@@ -18,6 +18,7 @@ from nbeatmodel import NBeatsNet
 from train import main_cmdargv
 from detect import Detector
 import api
+import load_analysis
 
 DATAPATH=['dataset/TMbase/data_200501_211031.csv',
           'dataset/TMbase/data_2111.csv',
@@ -185,6 +186,31 @@ def access_api_data(startdate=(2022,5,1),
              enddate=enddate,
              outdir=outdir)
 
+def plot_load_analysis():
+    '''--show [ymwh/mywh/mwyh/wmyh/wmbh]
+       y:year,
+       m:month,
+       w:week,
+       d:day,
+       h:hour,
+       b:building',
+       f:floor,
+       t:roomtype,
+       r:residents'''
+    argv=["--info","dataset/TMbase/info.csv",
+          "--data","dataset/TMbase/data_200501_211031.csv",
+                   "dataset/TMbase/data_2111.csv",
+                   "dataset/TMbase/data_2112.csv",
+                   "dataset/TMbase/data_2201.csv",
+                   "dataset/TMbase/data_2202.csv",
+                   "dataset/TMbase/data_2203.csv",
+                   "dataset/TMbase/data_2204.csv",
+                   "dataset/TMbase/data_2205.csv",
+                   "dataset/TMbase/data_2206.csv",
+                   "dataset/TMbase/data_2207.csv",
+          "--show","wmyh",
+          "--projection","l",]
+    load_analysis.main(argv)
 
 if __name__=='__main__':
     '''run the task
@@ -200,8 +226,8 @@ if __name__=='__main__':
          'ablation_block4_a00'
          'ablation_block4_a00_woc',]
 
-    access_api_data(startdate=(2022,7,1),
-                    enddate=(2022,7,31))
+    # access_api_data(startdate=(2022,7,1),
+    #                 enddate=(2022,7,31))
 
     # plot_disentangle_schematic()
     
@@ -210,7 +236,8 @@ if __name__=='__main__':
     # plot_model_basis(expname='ablation_block4_a00_woc',
     #                  NFA='N16-F04-A09')#NFA='N19-F11-A01'
 
-    
+    plot_load_analysis()
+
     # train_model()
     
     # detect_compute_ratio(expname='ablation_basis_wo_constrain',output_place=None)
