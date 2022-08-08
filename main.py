@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2022-06-10 15:43:23
 LastEditors: Egoist
-LastEditTime: 2022-08-07 15:33:32
+LastEditTime: 2022-08-08 17:08:29
 FilePath: /smp/main.py
 Description: 
     run different task in this script
@@ -208,13 +208,19 @@ def plot_load_analysis():
                    "dataset/TMbase/data_2205.csv",
                    "dataset/TMbase/data_2206.csv",
                    "dataset/TMbase/data_2207.csv",
-          "--show","wmyh",
+          "--show","ymwh",
           "--projection","l",]
     load_analysis.main(argv)
 
 if __name__=='__main__':
     '''run the task
-       adjust argument in above function if needed'''
+       adjust argument in above function if needed
+       
+       show file structure:
+           tree -L 2 -I 'tempdata|exp_*|__*'
+       '''
+
+    "tree -L 2 -I 'tempdata|exp_*|__*'"
 
     exp=['ablation_block2',
          'ablation_block2_a00'
@@ -226,8 +232,8 @@ if __name__=='__main__':
          'ablation_block4_a00'
          'ablation_block4_a00_woc',]
 
-    # access_api_data(startdate=(2022,7,1),
-    #                 enddate=(2022,7,31))
+    access_api_data(startdate=(2022,8,1),
+                    enddate=(2022,8,1))
 
     # plot_disentangle_schematic()
     
