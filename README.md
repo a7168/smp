@@ -34,7 +34,7 @@ source check.sh
 to check current dependency package and version.  
 Or run
 ```
-conda list | findstr /rc:'^python ' /rc:'pytorch ' /rc:'cudatoolkit' /rc:'numpy ' /rc:'pandas' /rc:'matplotlib ' /rc:'tensorboard ' /rc:'request ' /rc:'xlrd'
+conda list | findstr /rc:'^python ' /rc:'pytorch ' /rc:'cudatoolkit' /rc:'numpy ' /rc:'pandas' /rc:'matplotlib ' /rc:'tensorboard ' /rc:'requests ' /rc:'xlrd'
 ```
 in windows cmd.  
 If the specific package is not show in return list, that means package haven't been installed yet, or not in this environment but in base.  
@@ -53,7 +53,7 @@ python main.py
     2. run openproxyserver.bat to open tunnel as proxy server
     3. make sure `110resident.xls` and `connection.json` in `access` folder
     4. run `access_api_data` function in `main.py`  
-    expected result would be like:
+    expected result would be like:  
 ![access](https://user-images.githubusercontent.com/56117848/183474632-6921d12c-f2a7-4107-9956-27fbdceaaf08.png)
 + visualize statistics load data  
     1. make sure there are `data_xxx.csv` and `info.csv` in `dataset/TMbase` folder
@@ -84,7 +84,7 @@ We modify nbeats model to output backcast and fit the re-construction based anom
         + apply other residents' data on each model run `detect_apply_on_other_data` function
         + show reconstruction result and error run `detect_user_period` function
         + parameter `output_place` of function `detect_compute_ratio` and `detect_apply_on_other_data` can adjust figure output place,  
-        `None` for directly ouput to window or plot panel in editor, or given string to log in tensorboard.
+        `None` for directly ouput to window or plot panel in editor, or given a string `{str}` as path `runs/detect/{str}` to log in tensorboard.
 + other minor tasks
     + plot_user_data
     + plot_model_basis
