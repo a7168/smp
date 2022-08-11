@@ -2,7 +2,7 @@
 Author: Egoist
 Date: 2021-11-12 16:12:25
 LastEditors: Egoist
-LastEditTime: 2022-07-23 18:54:22
+LastEditTime: 2022-08-11 13:56:46
 FilePath: /smp/train.py
 Description: 
 
@@ -208,23 +208,24 @@ class Trainer():
         self.writer.add_scalar('validate/back',get_current('valiadate_back'),itrn)
         self.writer.add_scalar('validate/fore',get_current('valiadate_fore'),itrn)
         
-        # trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
-        trainsample_x,trainsample_y=torch.from_numpy(self.trloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
-        trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
-        trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
-        for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
-            self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
-            self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
-            self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
-            
-        # valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
-        valsample_x,valsample_y=torch.from_numpy(self.valloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
-        valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
-        valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
-        for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
-            self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
-            self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
-            self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
+        if self.samplesize>0: #visualize backcast and forecast of train set and validate set during training
+            # trainsample_x,trainsample_y=[torch.from_numpy(i) for i in self.trloader.dataset.getvisualbatch()]
+            trainsample_x,trainsample_y=torch.from_numpy(self.trloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
+            trainsample_result=self.inference(trainsample_x,future=None,step=1,trmode=False,gd=False)
+            trainsample_b,trainsample_f=trainsample_result['backcast'].cpu(),trainsample_result['forecast'].cpu()
+            for idx,x,y,b,f in zip(self.trloader.dataset.visualindices,trainsample_x,trainsample_y,trainsample_b,trainsample_f):
+                self.writer.add_figure(f'train_{idx}/all',self.plotall(x,y,b,f),itrn)
+                self.writer.add_figure(f'train_{idx}/fore',self.plotfore(y,f),itrn)
+                self.writer.add_figure(f'train_{idx}/back',self.plotback(x,b),itrn)
+                
+            # valsample_x,valsample_y=[torch.from_numpy(i) for i in self.valloader.dataset.getvisualbatch()]
+            valsample_x,valsample_y=torch.from_numpy(self.valloader.dataset.getvisualbatch(self.samplesize)).split([7*24,1*24],dim=1)
+            valsample_result=self.inference(valsample_x,future=None,step=1,trmode=False,gd=False)
+            valsample_b,valsample_f=valsample_result['backcast'].cpu(),valsample_result['forecast'].cpu()
+            for idx,x,y,b,f in zip(self.valloader.dataset.visualindices,valsample_x,valsample_y,valsample_b,valsample_f):
+                self.writer.add_figure(f'validate_{idx}/all',self.plotall(x,y,b,f),itrn)
+                self.writer.add_figure(f'validate_{idx}/fore',self.plotfore(y,f),itrn)
+                self.writer.add_figure(f'validate_{idx}/back',self.plotback(x,b),itrn)
         
         #embedding part
         if self.context_visualization:
